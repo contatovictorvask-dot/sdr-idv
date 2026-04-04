@@ -1,0 +1,16 @@
+# Secrets
+infra/.env
+**/.env
+
+# Dados de runtime
+infra/data/
+*.sqlite
+*.db
+
+# Node
+node_modules/
+dist/
+
+# OS
+.DS_Store
+Thumbs.db
