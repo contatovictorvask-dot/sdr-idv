@@ -73,7 +73,7 @@ services:
 
   # ---------------------------------------------------------------------------
   # N8N — Orquestrador Lógico Principal
-  # Acesso via Nginx Proxy Manager (ex: https://n8n.seudominio.com)
+  # Acesso direto via IP: http://157.230.210.188:5678
   # Basic Auth habilitado via variável de ambiente
   # ---------------------------------------------------------------------------
   n8n:
@@ -83,17 +83,17 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    expose:
-      - "5678"
+    ports:
+      - "5678:5678"
     volumes:
       - n8n_data:/home/node/.n8n
     environment:
       # --- Instância ---
-      N8N_HOST: ${N8N_HOST}                         # ex: n8n.seudominio.com
+      N8N_HOST: ${N8N_HOST}
       N8N_PORT: 5678
-      N8N_PROTOCOL: https
-      WEBHOOK_URL: https://${N8N_HOST}/
-      N8N_EDITOR_BASE_URL: https://${N8N_HOST}/
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://${N8N_HOST}:5678/
+      N8N_EDITOR_BASE_URL: http://${N8N_HOST}:5678/
 
       # --- Segurança: Basic Auth ---
       N8N_BASIC_AUTH_ACTIVE: "true"
@@ -154,7 +154,7 @@ services:
       - n8n_data:/home/node/.n8n
     environment:
       N8N_HOST: ${N8N_HOST}
-      N8N_PROTOCOL: https
+      N8N_PROTOCOL: http
       DB_TYPE: sqlite
       EXECUTIONS_MODE: queue
       QUEUE_BULL_REDIS_HOST: redis
@@ -169,7 +169,7 @@ services:
 
   # ---------------------------------------------------------------------------
   # EVOLUTION API — Motor de Disparo WhatsApp (baileys engine)
-  # Acesso via Nginx Proxy Manager (ex: https://evo.seudominio.com)
+  # Acesso direto via IP: http://157.230.210.188:8080
   # ---------------------------------------------------------------------------
   evolution-api:
     image: atendai/evolution-api:latest
@@ -178,13 +178,13 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    expose:
-      - "8080"
+    ports:
+      - "8080:8080"
     volumes:
       - evolution_data:/evolution/instances
     environment:
       # --- Servidor ---
-      SERVER_URL: https://${EVOLUTION_HOST}          # ex: https://evo.seudominio.com
+      SERVER_URL: http://${EVOLUTION_HOST}:8080
       SERVER_PORT: 8080
 
       # --- Auth ---
@@ -212,7 +212,7 @@ services:
       QRCODE_LIMIT: 30
 
       # --- Webhook global (n8n receberá eventos) ---
-      WEBHOOK_GLOBAL_URL: https://${N8N_HOST}/webhook/evolution
+      WEBHOOK_GLOBAL_URL: http://${N8N_HOST}:5678/webhook/evolution
       WEBHOOK_GLOBAL_ENABLED: "true"
       WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS: "true"
       WEBHOOK_EVENTS_MESSAGES_UPSERT: "true"
