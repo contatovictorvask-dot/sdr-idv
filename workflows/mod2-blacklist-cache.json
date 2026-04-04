@@ -1,0 +1,164 @@
+{
+  "name": "MOD2 — Blacklist Cache (Redis)",
+  "_meta": {
+    "module": 2,
+    "description": "Carrega a Blacklist do Google Sheets uma vez por dia e armazena no Redis. Usado pelos demais fluxos como sub-workflow.",
+    "trigger": "Chamado pelo fluxo de mineração (MOD3) no início de cada job noturno.",
+    "version": "2.0"
+  },
+  "nodes": [
+    {
+      "id": "1",
+      "name": "Trigger (chamada externa ou cron)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "parameters": {}
+    },
+    {
+      "id": "2",
+      "name": "Verifica cache Redis",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [440, 300],
+      "parameters": {
+        "operation": "get",
+        "key": "blacklist_cache_ts"
+      },
+      "_comment": "Verifica timestamp do último cache. Se < 23h, pula o reload."
+    },
+    {
+      "id": "3",
+      "name": "Cache ainda válido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [640, 300],
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ Date.now() - ($json['value'] || 0) }}",
+              "operation": "smallerEqual",
+              "value2": 82800000
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "4",
+      "name": "GET Blacklist (Sheets)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [840, 420],
+      "parameters": {
+        "operation": "getAll",
+        "documentId": "={{ $env.SHEETS_SPREADSHEET_ID }}",
+        "sheetName": "={{ $env.SHEETS_TAB_BLACKLIST }}",
+        "options": {
+          "headerRow": 1
+        }
+      },
+      "_credentials": "Google Sheets API (Service Account)"
+    },
+    {
+      "id": "5",
+      "name": "GET Quarentena (Sheets)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [840, 560],
+      "parameters": {
+        "operation": "getAll",
+        "documentId": "={{ $env.SHEETS_SPREADSHEET_ID }}",
+        "sheetName": "={{ $env.SHEETS_TAB_QUARENTENA }}",
+        "options": {
+          "headerRow": 1
+        }
+      }
+    },
+    {
+      "id": "6",
+      "name": "Monta array unificado + salva Redis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1040, 480],
+      "parameters": {
+        "jsCode": "// Une Blacklist_Permanente + Quarentena_90_Dias em um único Set\nconst blacklistItems  = $('GET Blacklist (Sheets)').all();\nconst quarentenaItems = $('GET Quarentena (Sheets)').all();\n\nconst toSet = arr => arr\n  .map(i => (i.json.username || '').toLowerCase().trim())\n  .filter(Boolean);\n\nconst merged = [...new Set([\n  ...toSet(blacklistItems),\n  ...toSet(quarentenaItems)\n])];\n\n// Salva no staticData para acesso síncrono dentro do workflow\n$workflow.staticData.blacklistCache    = merged;\n$workflow.staticData.blacklistCachedAt = Date.now();\n\nreturn [{ json: { blacklist: merged, count: merged.length, cachedAt: new Date().toISOString() } }];"
+      }
+    },
+    {
+      "id": "7",
+      "name": "Redis SET — blacklist_cache",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [1240, 420],
+      "parameters": {
+        "operation": "set",
+        "key": "blacklist_cache",
+        "value": "={{ JSON.stringify($json.blacklist) }}",
+        "expire": true,
+        "ttl": 86400
+      },
+      "_comment": "TTL 24h — renovado a cada job diário"
+    },
+    {
+      "id": "8",
+      "name": "Redis SET — blacklist_cache_ts",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [1240, 540],
+      "parameters": {
+        "operation": "set",
+        "key": "blacklist_cache_ts",
+        "value": "={{ Date.now() }}",
+        "expire": true,
+        "ttl": 86400
+      }
+    },
+    {
+      "id": "9",
+      "name": "Retorna resultado",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1440, 480],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Trigger (chamada externa ou cron)": {
+      "main": [[{ "node": "Verifica cache Redis", "type": "main", "index": 0 }]]
+    },
+    "Verifica cache Redis": {
+      "main": [[{ "node": "Cache ainda válido?", "type": "main", "index": 0 }]]
+    },
+    "Cache ainda válido?": {
+      "main": [
+        [{ "node": "Retorna resultado", "type": "main", "index": 0 }],
+        [
+          { "node": "GET Blacklist (Sheets)", "type": "main", "index": 0 },
+          { "node": "GET Quarentena (Sheets)", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "GET Blacklist (Sheets)": {
+      "main": [[{ "node": "Monta array unificado + salva Redis", "type": "main", "index": 0 }]]
+    },
+    "GET Quarentena (Sheets)": {
+      "main": [[{ "node": "Monta array unificado + salva Redis", "type": "main", "index": 1 }]]
+    },
+    "Monta array unificado + salva Redis": {
+      "main": [[
+        { "node": "Redis SET — blacklist_cache", "type": "main", "index": 0 },
+        { "node": "Redis SET — blacklist_cache_ts", "type": "main", "index": 0 }
+      ]]
+    },
+    "Redis SET — blacklist_cache": {
+      "main": [[{ "node": "Retorna resultado", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "errorWorkflow": ""
+  }
+}

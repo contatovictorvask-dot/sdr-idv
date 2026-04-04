@@ -1,0 +1,58 @@
+{
+  "_comment": "IDs reais do Airtable — SDR Perpétuo B2B v2.0. Use estes valores nas variáveis de ambiente do n8n.",
+  "base": {
+    "id": "app9BlRhuDFuRfyHi",
+    "name": "Leads SDR"
+  },
+  "tables": {
+    "SDR_Operacional": {
+      "id": "tblr6r7m93b7CcwOS",
+      "description": "Hot Storage — CRM operacional. Pipeline principal do funil.",
+      "fields": {
+        "Username":         "fldP16XOwG6PW31ir",
+        "Nome_Empresa":     "fldWyOafGenWcXt4F",
+        "Bio":              "fldpsdHWzfifWeHrw",
+        "Link_IG":          "fldbhkMvZMD0mvOHz",
+        "External_URL":     "fldAQJGkG4IGnRiPc",
+        "Lead_Score":       "fldGewkP76FOn5Pr0",
+        "Followers":        "fldMeOB5ffrfEFoZV",
+        "Status":           "fldHwz2SxbVAKyn2E",
+        "Foto_Perfil":      "fldQG8761GeyCZcG8",
+        "Data_Ultima_Acao": "fld57GzljJG40gmjT",
+        "Data_Entrada":     "fldiNXHdScxZ0oxn8",
+        "Pitch_Script":     "fldOSWKQUBFBFjZ49",
+        "Nicho":            "fldJqqB3hAQnM0rTT",
+        "Cidade":           "fldvDFCHYD02rPKd8",
+        "is_business":      "fld64w76s5SYf6QYC",
+        "Observacoes":      "fldXWWSFoZHqlrWeG"
+      },
+      "status_choices": {
+        "Curadoria":        "sel43sf7p0zoPO4Vo",
+        "Dia_1":            "selaRr85Zu6owsPCV",
+        "Dia_2":            "selFP7X5JMvcVmQKx",
+        "Dia_3":            "selH66MgDqn9fmvNC",
+        "Dia_4_Pitch":      "selw7741zppUoj5Uo",
+        "Proposta_Enviada": "selt5AWV54l4xHq1o",
+        "Em_Negociacao":    "selmqmlNuKZtbbhpb",
+        "Won":              "selpwP3fojMGmnMy5",
+        "Reprovado":        "selmY29me05ODahXM",
+        "Quarentena":       "selQbsGmon8s4mXic"
+      }
+    },
+    "Clientes_SDR": {
+      "id": "tblOYJaQejTpT5WyR",
+      "description": "Leads convertidos (Won). Trigger de Upsell em 45 dias.",
+      "fields": {
+        "Username":        "fldl8gvJjoI7cGmAQ",
+        "Nome_Empresa":    "fld3VzyeyQjwZQaQI",
+        "Link_IG":         "fldt3BkVUGFX3qrAu",
+        "Data_Fechamento": "fld2EWim5xShEPgIV",
+        "Valor_Contrato":  "fldUnYHLTvvIxyBon",
+        "Status_Entrega":  "fld1PkYJwHlp3CuDl",
+        "Data_Upsell":     "fldjWSIWHsSdyVGEx",
+        "Telefone_WA":     "fldE2D3fkcVOqtQhr",
+        "Observacoes":     "fldqnjVyZWFSazaPz"
+      }
+    }
+  }
+}
