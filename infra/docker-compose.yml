@@ -128,6 +128,9 @@ services:
       N8N_DIAGNOSTICS_ENABLED: "false"
       N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
 
+      # --- Acesso por IP (sem HTTPS) ---
+      N8N_SECURE_COOKIE: "false"
+
     networks:
       - sdr_net
     healthcheck:
