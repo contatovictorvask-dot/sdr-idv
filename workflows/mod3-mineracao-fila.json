@@ -29,11 +29,6 @@
       "parameters": {
         "operation": "get",
         "key": "blacklist_cache"
-      },
-      "credentials": {
-        "redis": {
-          "name": "Redis SDR"
-        }
       }
     },
     {
