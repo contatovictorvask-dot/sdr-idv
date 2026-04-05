@@ -2,92 +2,39 @@
   "name": "MOD3 — Mineração e Alimentação da Fila",
   "_meta": {
     "module": 3,
-    "description": "Recebe Missão Semanal via Webhook → raspa Instagram via Apify → filtra + score → bulk insert Airtable",
-    "version": "2.0",
+    "description": "Pré-filtro SERP Google (barato) → Profile Scraper por username (eficiente) → Score + Filtros → Bulk Insert Airtable",
+    "version": "2.1",
+    "custo_reducao": "SERP Google Scraper (~0.3 CU/pag) + Profile Scraper (~0.3 CU/perfil) vs Search Scraper (~2 CU/perfil)",
     "airtable_base": "app9BlRhuDFuRfyHi",
     "airtable_table": "tblr6r7m93b7CcwOS"
   },
   "nodes": [
     {
-      "id": "11111111-0000-4000-a000-000000000001",
+      "id": "n01",
       "name": "Webhook — Missão Semanal",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [240, 300],
+      "position": [
+        240,
+        300
+      ],
       "parameters": {
         "path": "missao-semanal",
         "httpMethod": "POST",
         "responseMode": "responseNode",
         "options": {}
       },
-      "_comment": "Recebe payload do Cockpit: { nicho, cidades[], meta_semanal }. Porta: POST http://IP:5678/webhook/missao-semanal"
+      "_comment": "Payload: { nicho: string, cidades: string[], meta_semanal?: number }"
     },
     {
-      "id": "11111111-0000-4000-a000-000000000002",
-      "name": "Code — Prepara Payload Apify",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [480, 300],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "// ── Valida e normaliza o payload recebido do Cockpit ──────────────────────\nconst body = $input.first().json.body || $input.first().json;\nconst { nicho, cidades, meta_semanal = 150 } = body;\n\nif (!nicho)    throw new Error('Payload inválido: campo \"nicho\" é obrigatório.');\nif (!cidades)  throw new Error('Payload inválido: campo \"cidades\" é obrigatório (string ou array).');\n\nconst cidadesArr = Array.isArray(cidades) ? cidades : [cidades];\n\n// Divide a meta semanal em lote diário (ex: 150/7 = ~22 por noite)\nconst lote_diario = Math.ceil(meta_semanal / 7);\n\n// Buffer de 2x para compensar leads descartados pelo filtro/score\nconst apify_limit = lote_diario * 2;\n\n// Grava a missão no staticData para uso nos próximos nós\n$workflow.staticData.missao = {\n  nicho,\n  cidades: cidadesArr,\n  meta_semanal,\n  lote_diario,\n  inicio: new Date().toISOString()\n};\n\n// Gera um item por cidade (cada um dispara um run separado no Apify)\nreturn cidadesArr.map(cidade => ({\n  json: {\n    nicho,\n    cidade,\n    lote_diario,\n    apify_limit,\n    search_query: `${nicho} ${cidade}`\n  }\n}));"
-      }
-    },
-    {
-      "id": "11111111-0000-4000-a000-000000000003",
-      "name": "HTTP — Apify: Inicia Run",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
-      "position": [720, 300],
-      "parameters": {
-        "method": "POST",
-        "url": "=https://api.apify.com/v2/acts/apify~instagram-scraper/runs?waitForFinish=300&token={{ $env.APIFY_TOKEN }}",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"search\": \"{{ $json.search_query }}\",\n  \"searchType\": \"user\",\n  \"searchLimit\": {{ $json.apify_limit }},\n  \"addParentData\": false,\n  \"resultsLimit\": {{ $json.apify_limit }}\n}",
-        "options": {
-          "timeout": 360000,
-          "response": {
-            "response": {
-              "fullResponse": false
-            }
-          }
-        }
-      },
-      "_comment": "waitForFinish=300 → Apify segura a requisição até o actor terminar (máx 5 min). O token é passado via env var."
-    },
-    {
-      "id": "11111111-0000-4000-a000-000000000004",
-      "name": "Code — Extrai Dataset ID",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [960, 300],
-      "parameters": {
-        "mode": "runOnceForEachItem",
-        "jsCode": "// A resposta do Apify vem em data.defaultDatasetId\nconst runData = $input.item.json.data || $input.item.json;\n\nif (!runData.defaultDatasetId) {\n  throw new Error(`Apify run falhou ou não retornou dataset. Status: ${runData.status || 'desconhecido'}`);\n}\n\nif (runData.status !== 'SUCCEEDED') {\n  throw new Error(`Apify run não concluiu com sucesso. Status: ${runData.status}`);\n}\n\nreturn {\n  json: {\n    datasetId: runData.defaultDatasetId,\n    runId: runData.id,\n    itemCount: runData.stats?.itemCount || 0,\n    cidade: $workflow.staticData.missao?.cidades?.[0] || ''\n  }\n};"
-      }
-    },
-    {
-      "id": "11111111-0000-4000-a000-000000000005",
-      "name": "HTTP — Apify: Busca Dataset",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
-      "position": [1200, 300],
-      "parameters": {
-        "method": "GET",
-        "url": "=https://api.apify.com/v2/datasets/{{ $json.datasetId }}/items?token={{ $env.APIFY_TOKEN }}&format=json&clean=true",
-        "options": {
-          "timeout": 60000
-        }
-      },
-      "_comment": "Retorna array com todos os perfis raspados. clean=true remove campos vazios."
-    },
-    {
-      "id": "11111111-0000-4000-a000-000000000006",
+      "id": "n02",
       "name": "Redis — GET Blacklist Cache",
       "type": "n8n-nodes-base.redis",
       "typeVersion": 1,
-      "position": [1440, 300],
+      "position": [
+        480,
+        300
+      ],
       "parameters": {
         "operation": "get",
         "key": "blacklist_cache"
@@ -97,25 +44,209 @@
           "name": "Redis SDR"
         }
       },
-      "_comment": "Lê o cache da blacklist. Se vazio, o Code de filtro usa array vazio (seguro). Cache populado pelo MOD2 diariamente."
+      "_comment": "Cache populado pelo MOD2 diariamente. Lido aqui uma vez — sem consulta por lead."
     },
     {
-      "id": "11111111-0000-4000-a000-000000000007",
-      "name": "Code — Filtra Anti-Concorrente + Lead Score",
+      "id": "n03",
+      "name": "Code — Prepara Missão",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1680, 300],
+      "position": [
+        720,
+        300
+      ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// ── Recupera resultados do Apify e blacklist do Redis ─────────────────────\nconst apifyItems = $('HTTP — Apify: Busca Dataset').all();\nconst redisItem  = $('Redis — GET Blacklist Cache').first();\nconst blacklist  = JSON.parse(redisItem.json.value || '[]').map(u => u.toLowerCase().trim());\n\nconst missao = $workflow.staticData.missao || {};\n\n// ── Keywords que identificam concorrentes / serviços similares ─────────────\nconst CONCORRENTE_KW = [\n  'design', 'designer', 'criativo', 'criativa', 'arte', 'artista',\n  'portfolio', 'portfólio', 'branding', 'logo', 'logotipo',\n  'agência', 'agencia', 'marketing', 'identidade visual', 'marca'\n];\n\nconst qualificados = [];\nconst descartados  = { blacklist: 0, nao_b2b: 0, concorrente: 0, inativo: 0, score_baixo: 0 };\n\nfor (const item of apifyItems) {\n  // O Apify pode retornar o array direto ou embrulhado\n  const profiles = Array.isArray(item.json) ? item.json : [item.json];\n\n  for (const p of profiles) {\n    if (!p || !p.username) continue;\n\n    const username = (p.username || '').toLowerCase().trim();\n\n    // ── 0. Blacklist ───────────────────────────────────────────────────────\n    if (blacklist.includes(username)) { descartados.blacklist++; continue; }\n\n    // Normaliza campos (Apify usa camelCase)\n    const is_business = p.isBusinessAccount === true;\n    const bio         = (p.biography || '').toLowerCase();\n    const ext_url     = (p.externalUrl || p.external_url || '').toLowerCase().trim();\n    const followers   = p.followersCount || p.followersCount || 0;\n    const pic_url     = p.profilePicUrlHD || p.profilePicUrl || '';\n\n    // Pega data do post mais recente\n    const latestPosts = p.latestPosts || [];\n    const latestTimestamp = latestPosts.length > 0\n      ? (latestPosts[0].timestamp || latestPosts[0].takenAtTimestamp || null)\n      : null;\n\n    // ── 1. Filtro B2B (conta comercial OU URL externa válida) ──────────────\n    if (!is_business && !ext_url) { descartados.nao_b2b++; continue; }\n\n    // ── 2. Filtro Anti-Concorrente ─────────────────────────────────────────\n    if (CONCORRENTE_KW.some(kw => bio.includes(kw))) { descartados.concorrente++; continue; }\n\n    // ── 3. Lead Score ──────────────────────────────────────────────────────\n    let score = 0;\n\n    // Tamanho do público: sweet spot para pequenos negócios\n    if (followers >= 1000 && followers <= 15000) score += 20;\n\n    // Atividade recente\n    if (latestTimestamp) {\n      const postDate = new Date(\n        typeof latestTimestamp === 'number' ? latestTimestamp * 1000 : latestTimestamp\n      );\n      const daysSince = (Date.now() - postDate.getTime()) / 86400000;\n      if (daysSince > 30) { descartados.inativo++; continue; } // perfil abandonado\n      if (daysSince <= 7) score += 15;                         // postou essa semana\n    }\n\n    // Amadorismo digital = oportunidade de venda de identidade visual\n    const isAmateur = !ext_url ||\n      ext_url.includes('linktr.ee') ||\n      ext_url.includes('beacons')   ||\n      ext_url.includes('wa.me')     ||\n      ext_url.includes('api.whatsapp');\n    if (isAmateur) score += 15;\n\n    // ── Aprovação mínima ───────────────────────────────────────────────────\n    if (score < 40) { descartados.score_baixo++; continue; }\n\n    qualificados.push({\n      json: {\n        Username:        p.username,\n        Nome_Empresa:    p.fullName || p.username,\n        Bio:             p.biography || '',\n        Link_IG:         `https://www.instagram.com/${p.username}/`,\n        External_URL:    p.externalUrl || '',\n        Lead_Score:      score,\n        Followers:       followers,\n        Status:          'Curadoria',\n        Foto_Perfil_URL: pic_url,\n        Data_Entrada:    new Date().toISOString(),\n        Nicho:           missao.nicho  || '',\n        Cidade:          missao.cidades ? missao.cidades[0] : '',\n        is_business:     is_business\n      }\n    });\n  }\n}\n\n// Log de resultado (visível nas execuções do n8n)\nconsole.log(`[SDR] Qualificados: ${qualificados.length} | Descartados:`, JSON.stringify(descartados));\n\n// Marca resultado no staticData para o Respond final\n$workflow.staticData.ultima_mineracao = {\n  qualificados: qualificados.length,\n  descartados,\n  timestamp: new Date().toISOString()\n};\n\nif (qualificados.length === 0) {\n  return [{ json: { _sem_leads: true, total: 0, descartados } }];\n}\n\nreturn qualificados;"
+        "jsCode": "const body = $('Webhook — Missão Semanal').first().json.body ||\n             $('Webhook — Missão Semanal').first().json;\nconst { nicho, cidades, meta_semanal = 150 } = body;\nif (!nicho?.trim()) throw new Error('Payload inválido: \"nicho\" é obrigatório.');\nif (!cidades)       throw new Error('Payload inválido: \"cidades\" é obrigatório.');\nconst cidadesArr = Array.isArray(cidades) ? cidades : [cidades];\nif (cidadesArr.length === 0) throw new Error('Pelo menos uma cidade é obrigatória.');\nconst lote_diario = Math.ceil(meta_semanal / 7);\nconst candidatos_meta = lote_diario * 3;\nconst serp_queries = cidadesArr.map(c => `site:instagram.com \"${nicho}\" \"${c}\"`).join('\n');\nconst serp_paginas = Math.min(Math.max(1, Math.ceil(candidatos_meta / (10 * cidadesArr.length))), 5);\n$workflow.staticData.missao = {\n  nicho, cidades: cidadesArr, meta_semanal, lote_diario, candidatos_meta,\n  inicio: new Date().toISOString()\n};\nreturn [{ json: {\n  nicho, cidades: cidadesArr, lote_diario, candidatos_meta,\n  serp_queries, serp_paginas,\n  search_query_fallback: `${nicho} ${cidadesArr[0]}`\n} }];"
+      },
+      "_comment": "Valida payload, calcula lote diário (meta/7) e monta queries SERP por cidade."
+    },
+    {
+      "id": "n04",
+      "name": "HTTP — Apify: SERP Google Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.apify.com/v2/acts/apify~google-search-scraper/runs?waitForFinish=120&token={{ $env.APIFY_TOKEN }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"queries\": \"{{ $json.serp_queries }}\",\n  \"resultsPerPage\": 10,\n  \"maxPagesPerQuery\": {{ $json.serp_paginas }},\n  \"languageCode\": \"pt-BR\",\n  \"countryCode\": \"br\"\n}",
+        "options": {
+          "timeout": 150000
+        }
+      },
+      "_comment": "PRÉ-FILTRO BARATO: Google SERP identifica perfis do Instagram antes de acionar o actor caro."
+    },
+    {
+      "id": "n05",
+      "name": "HTTP — Apify: SERP Dataset",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.apify.com/v2/datasets/{{ $json.data.defaultDatasetId }}/items?token={{ $env.APIFY_TOKEN }}&format=json&clean=true",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "_comment": "Busca os resultados do SERP: URLs e snippets das páginas do Instagram indexadas pelo Google."
+    },
+    {
+      "id": "n06",
+      "name": "Code — Extrai Usernames + Pré-Filtro",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const serpItems = $input.all();\nconst redisRaw = $('Redis — GET Blacklist Cache').first().json.value || '[]';\nconst blacklist = JSON.parse(redisRaw).map(u => u.toLowerCase().trim());\nconst missao = $workflow.staticData.missao || {};\nconst CONCORRENTE_KW = ['design','designer','criativo','criativa','logo','branding',\n  'agência','agencia','marketing','identidade visual','portfólio','portfolio'];\nconst IG_URL_RE = /instagram\\.com\\/([a-z0-9_\\.]{1,30})(?:\\/|\\?|$)/i;\nconst IG_RESERVADOS = new Set(['p','stories','reels','explore','accounts','tv','reel']);\nconst candidatos = [];\nconst descartados_serp = { blacklist: 0, concorrente: 0, url_invalida: 0, duplicado: 0 };\nconst seen = new Set();\nfor (const item of serpItems) {\n  const results = Array.isArray(item.json) ? item.json : [item.json];\n  for (const r of results) {\n    const url = r.url || r.link || '';\n    if (!url) continue;\n    const match = IG_URL_RE.exec(url);\n    if (!match) { descartados_serp.url_invalida++; continue; }\n    const username = match[1].toLowerCase().trim();\n    if (IG_RESERVADOS.has(username)) { descartados_serp.url_invalida++; continue; }\n    if (seen.has(username)) { descartados_serp.duplicado++; continue; }\n    seen.add(username);\n    if (blacklist.includes(username)) { descartados_serp.blacklist++; continue; }\n    const texto = `${r.title || ''} ${r.description || r.snippet || ''}`.toLowerCase();\n    if (CONCORRENTE_KW.some(kw => texto.includes(kw))) { descartados_serp.concorrente++; continue; }\n    const cidades = missao.cidades || [];\n    const cidade_detectada = cidades.find(c => texto.includes(c.toLowerCase())) || cidades[0] || '';\n    candidatos.push({ username, cidade: cidade_detectada });\n  }\n}\nconsole.log(`[SDR SERP] Candidatos: ${candidatos.length} | Descartados:`, JSON.stringify(descartados_serp));\nconst lote_diario = missao.lote_diario || 22;\nconst tem_suficientes = candidatos.length >= lote_diario;\nreturn [{ json: {\n  candidatos,\n  usernames: candidatos.map(c => c.username),\n  tem_suficientes,\n  total_candidatos: candidatos.length,\n  lote_diario,\n  descartados_serp,\n  nicho: missao.nicho || '',\n  cidades: missao.cidades || [],\n  search_query_fallback: `${missao.nicho || ''} ${(missao.cidades || [])[0] || ''}`\n} }];"
+      },
+      "_comment": "Extrai usernames do Instagram dos resultados SERP. Remove blacklistados e concorrentes óbvios do snippet."
+    },
+    {
+      "id": "n07",
+      "name": "IF — Usar Profile Scraper?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-tem-candidatos",
+              "leftValue": "={{ $json.tem_suficientes }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "_comment": "TRUE → Profile Scraper (barato, por username). FALSE → Search Scraper (fallback, busca aberta)."
+    },
+    {
+      "id": "n08",
+      "name": "HTTP — Apify: Profile Scraper Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1920,
+        140
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.apify.com/v2/acts/apify~instagram-profile-scraper/runs?waitForFinish=180&token={{ $env.APIFY_TOKEN }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"usernames\": {{ JSON.stringify($json.usernames) }},\n  \"resultsLimit\": {{ $json.total_candidatos }}\n}",
+        "options": {
+          "timeout": 210000
+        }
+      },
+      "_comment": "CAMINHO BARATO: Busca perfis somente dos usernames pré-filtrados. Payload: is_business_account, biography, external_url, followersCount, profilePicUrl."
+    },
+    {
+      "id": "n09",
+      "name": "HTTP — Apify: Profile Dataset",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2160,
+        140
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.apify.com/v2/datasets/{{ $json.data.defaultDatasetId }}/items?token={{ $env.APIFY_TOKEN }}&format=json&clean=true",
+        "options": {
+          "timeout": 30000
+        }
       }
     },
     {
-      "id": "11111111-0000-4000-a000-000000000008",
+      "id": "n10",
+      "name": "HTTP — Apify: Search Scraper Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1920,
+        460
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.apify.com/v2/acts/apify~instagram-scraper/runs?waitForFinish=300&token={{ $env.APIFY_TOKEN }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"search\": \"{{ $json.search_query_fallback }}\",\n  \"searchType\": \"user\",\n  \"searchLimit\": {{ $json.lote_diario * 2 }},\n  \"resultsLimit\": {{ $json.lote_diario * 2 }},\n  \"addParentData\": false\n}",
+        "options": {
+          "timeout": 360000
+        }
+      },
+      "_comment": "FALLBACK: SERP insuficiente → busca aberta por keyword (mais CUs, mas garante cobertura)."
+    },
+    {
+      "id": "n11",
+      "name": "HTTP — Apify: Search Dataset",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2160,
+        460
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.apify.com/v2/datasets/{{ $json.data.defaultDatasetId }}/items?token={{ $env.APIFY_TOKEN }}&format=json&clean=true",
+        "options": {
+          "timeout": 60000
+        }
+      }
+    },
+    {
+      "id": "n12",
+      "name": "Code — Score Final + Filtro Anti-Concorrente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const apifyItems = $input.all();\nconst missao = $workflow.staticData.missao || {};\nconst serpData = $('Code — Extrai Usernames + Pré-Filtro').first().json;\nconst cidadeMap = {};\n(serpData.candidatos || []).forEach(c => {\n  if (c.username) cidadeMap[c.username.toLowerCase()] = c.cidade;\n});\nconst CONCORRENTE_KW = ['design','designer','criativo','criativa','arte','artista',\n  'portfolio','portfólio','branding','logo','logotipo','agência','agencia',\n  'marketing','identidade visual','marca','social media','tráfego','gestor','gestora'];\nconst qualificados = [];\nconst descartados = { nao_b2b: 0, concorrente: 0, inativo: 0, score_baixo: 0 };\nfor (const item of apifyItems) {\n  const profiles = Array.isArray(item.json) ? item.json : [item.json];\n  for (const p of profiles) {\n    if (!p || !p.username) continue;\n    const username = (p.username || '').toLowerCase().trim();\n    const is_business = p.isBusinessAccount === true;\n    const bio         = (p.biography || '').toLowerCase();\n    const ext_url     = (p.externalUrl || '').toLowerCase().trim();\n    const followers   = Number(p.followersCount) || 0;\n    const pic_url     = p.profilePicUrlHD || p.profilePicUrl || '';\n    const latestPosts = p.latestPosts || [];\n    const latestTs    = latestPosts.length > 0\n      ? (latestPosts[0].timestamp || latestPosts[0].takenAtTimestamp || null)\n      : null;\n    if (!is_business && !ext_url) { descartados.nao_b2b++; continue; }\n    if (CONCORRENTE_KW.some(kw => bio.includes(kw))) { descartados.concorrente++; continue; }\n    let score = 0;\n    if      (followers >= 1000  && followers <= 15000) score += 20;\n    else if (followers > 15000  && followers <= 50000) score += 10;\n    if (latestTs) {\n      const postDate  = new Date(typeof latestTs === 'number' ? latestTs * 1000 : latestTs);\n      const daysSince = (Date.now() - postDate.getTime()) / 86400000;\n      if (daysSince > 30)  { descartados.inativo++; continue; }\n      if (daysSince <= 7)  score += 15;\n      else if (daysSince <= 14) score += 10;\n    }\n    const isAmateur = !ext_url\n      || ext_url.includes('linktr.ee')\n      || ext_url.includes('beacons.ai')\n      || ext_url.includes('bio.site')\n      || ext_url.includes('wa.me')\n      || ext_url.includes('api.whatsapp');\n    if (isAmateur)   score += 15;\n    if (is_business) score += 10;\n    if (score < 40) { descartados.score_baixo++; continue; }\n    const cidade = cidadeMap[username] || (missao.cidades ? missao.cidades[0] : '');\n    qualificados.push({ json: {\n      Username:        p.username,\n      Nome_Empresa:    p.fullName || p.username,\n      Bio:             p.biography || '',\n      Link_IG:         `https://www.instagram.com/${p.username}/`,\n      External_URL:    p.externalUrl || '',\n      Lead_Score:      score,\n      Followers:       followers,\n      Status:          'Curadoria',\n      Foto_Perfil_URL: pic_url,\n      Data_Entrada:    new Date().toISOString(),\n      Nicho:           missao.nicho  || '',\n      Cidade:          cidade,\n      is_business:     is_business\n    } });\n  }\n}\nconsole.log(`[SDR Score] Qualificados: ${qualificados.length} | Descartados:`, JSON.stringify(descartados));\n$workflow.staticData.ultima_mineracao = {\n  qualificados: qualificados.length, descartados, timestamp: new Date().toISOString()\n};\nif (qualificados.length === 0) return [{ json: { _sem_leads: true, total: 0, descartados } }];\nreturn qualificados;"
+      },
+      "_comment": "Score final (MOD4 embutido). Campos obrigatórios: is_business_account, biography, external_url, followersCount, latestPostDate, profilePicUrl."
+    },
+    {
+      "id": "n13",
       "name": "IF — Tem Leads Qualificados?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [1920, 300],
+      "position": [
+        2640,
+        300
+      ],
       "parameters": {
         "conditions": {
           "options": {
@@ -137,37 +268,46 @@
           "combinator": "and"
         }
       },
-      "_comment": "true (output 0) = tem leads → segue para batching. false (output 1) = sem leads → responde webhook."
+      "_comment": "TRUE → batching Airtable. FALSE → responde webhook sem leads."
     },
     {
-      "id": "11111111-0000-4000-a000-000000000009",
+      "id": "n14",
       "name": "Loop — Split em Lotes de 10",
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
-      "position": [2160, 180],
+      "position": [
+        2880,
+        140
+      ],
       "parameters": {
         "batchSize": 10,
         "options": {}
       },
-      "_comment": "Output 0 = lote atual (até 10 leads). Output 1 = todos os lotes processados → dispara Respond Webhook."
+      "_comment": "Airtable Bulk Create: máximo 10 records por requisição."
     },
     {
-      "id": "11111111-0000-4000-a000-000000000010",
+      "id": "n15",
       "name": "Code — Monta Records Airtable",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2400, 180],
+      "position": [
+        3120,
+        140
+      ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Agrega todos os leads do lote atual no formato de Bulk Create da API do Airtable\nconst records = items.map(item => ({\n  fields: {\n    Username:         item.json.Username        || '',\n    Nome_Empresa:     item.json.Nome_Empresa     || '',\n    Bio:              item.json.Bio              || '',\n    Link_IG:          item.json.Link_IG          || '',\n    External_URL:     item.json.External_URL     || '',\n    Lead_Score:       item.json.Lead_Score       || 0,\n    Followers:        item.json.Followers        || 0,\n    Status:           'Curadoria',\n    // Foto_Perfil: Airtable baixa a imagem pelo URL automaticamente\n    Foto_Perfil: item.json.Foto_Perfil_URL\n      ? [{ url: item.json.Foto_Perfil_URL }]\n      : [],\n    Data_Entrada: item.json.Data_Entrada || new Date().toISOString(),\n    Nicho:        item.json.Nicho        || '',\n    Cidade:       item.json.Cidade       || '',\n    is_business:  item.json.is_business  === true\n  }\n}));\n\nreturn [{ json: { records, count: records.length } }];"
+        "jsCode": "const records = items.map(item => ({ fields: {\n  Username:     item.json.Username     || '',\n  Nome_Empresa: item.json.Nome_Empresa || '',\n  Bio:          item.json.Bio          || '',\n  Link_IG:      item.json.Link_IG      || '',\n  External_URL: item.json.External_URL || '',\n  Lead_Score:   item.json.Lead_Score   || 0,\n  Followers:    item.json.Followers    || 0,\n  Status:       'Curadoria',\n  Foto_Perfil:  item.json.Foto_Perfil_URL ? [{ url: item.json.Foto_Perfil_URL }] : [],\n  Data_Entrada: item.json.Data_Entrada || new Date().toISOString(),\n  Nicho:        item.json.Nicho        || '',\n  Cidade:       item.json.Cidade       || '',\n  is_business:  item.json.is_business  === true\n} }));\nreturn [{ json: { records, count: records.length } }];"
       }
     },
     {
-      "id": "11111111-0000-4000-a000-000000000011",
+      "id": "n16",
       "name": "HTTP — Airtable Bulk Create",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [2640, 180],
+      "position": [
+        3360,
+        140
+      ],
       "parameters": {
         "method": "POST",
         "url": "https://api.airtable.com/v0/app9BlRhuDFuRfyHi/tblr6r7m93b7CcwOS",
@@ -193,14 +333,17 @@
           "timeout": 30000
         }
       },
-      "_comment": "1 requisição HTTP cria até 10 leads de uma vez. Muito mais eficiente que 10 chamadas individuais."
+      "_comment": "1 request = até 10 leads. Loop retorna ao Split até esgotar todos os lotes."
     },
     {
-      "id": "11111111-0000-4000-a000-000000000012",
+      "id": "n17",
       "name": "Respond — Sucesso",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [2880, 180],
+      "position": [
+        3600,
+        140
+      ],
       "parameters": {
         "respondWith": "json",
         "responseBody": "={\n  \"status\": \"ok\",\n  \"mensagem\": \"Mineração concluída\",\n  \"resultado\": {{ JSON.stringify($workflow.staticData.ultima_mineracao || {}) }},\n  \"timestamp\": \"{{ new Date().toISOString() }}\"\n}",
@@ -210,11 +353,14 @@
       }
     },
     {
-      "id": "11111111-0000-4000-a000-000000000013",
+      "id": "n18",
       "name": "Respond — Sem Leads",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [2160, 460],
+      "position": [
+        2880,
+        460
+      ],
       "parameters": {
         "respondWith": "json",
         "responseBody": "={\n  \"status\": \"ok\",\n  \"mensagem\": \"Nenhum lead qualificado nesta rodada\",\n  \"descartados\": {{ JSON.stringify($json.descartados || {}) }},\n  \"timestamp\": \"{{ new Date().toISOString() }}\"\n}",
@@ -227,59 +373,199 @@
   "connections": {
     "Webhook — Missão Semanal": {
       "main": [
-        [{ "node": "Code — Prepara Payload Apify", "type": "main", "index": 0 }]
-      ]
-    },
-    "Code — Prepara Payload Apify": {
-      "main": [
-        [{ "node": "HTTP — Apify: Inicia Run", "type": "main", "index": 0 }]
-      ]
-    },
-    "HTTP — Apify: Inicia Run": {
-      "main": [
-        [{ "node": "Code — Extrai Dataset ID", "type": "main", "index": 0 }]
-      ]
-    },
-    "Code — Extrai Dataset ID": {
-      "main": [
-        [{ "node": "HTTP — Apify: Busca Dataset", "type": "main", "index": 0 }]
-      ]
-    },
-    "HTTP — Apify: Busca Dataset": {
-      "main": [
-        [{ "node": "Redis — GET Blacklist Cache", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Redis — GET Blacklist Cache",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Redis — GET Blacklist Cache": {
       "main": [
-        [{ "node": "Code — Filtra Anti-Concorrente + Lead Score", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Code — Prepara Missão",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Code — Filtra Anti-Concorrente + Lead Score": {
+    "Code — Prepara Missão": {
       "main": [
-        [{ "node": "IF — Tem Leads Qualificados?", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "HTTP — Apify: SERP Google Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP — Apify: SERP Google Run": {
+      "main": [
+        [
+          {
+            "node": "HTTP — Apify: SERP Dataset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP — Apify: SERP Dataset": {
+      "main": [
+        [
+          {
+            "node": "Code — Extrai Usernames + Pré-Filtro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — Extrai Usernames + Pré-Filtro": {
+      "main": [
+        [
+          {
+            "node": "IF — Usar Profile Scraper?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF — Usar Profile Scraper?": {
+      "main": [
+        [
+          {
+            "node": "HTTP — Apify: Profile Scraper Run",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP — Apify: Search Scraper Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP — Apify: Profile Scraper Run": {
+      "main": [
+        [
+          {
+            "node": "HTTP — Apify: Profile Dataset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP — Apify: Profile Dataset": {
+      "main": [
+        [
+          {
+            "node": "Code — Score Final + Filtro Anti-Concorrente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP — Apify: Search Scraper Run": {
+      "main": [
+        [
+          {
+            "node": "HTTP — Apify: Search Dataset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP — Apify: Search Dataset": {
+      "main": [
+        [
+          {
+            "node": "Code — Score Final + Filtro Anti-Concorrente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — Score Final + Filtro Anti-Concorrente": {
+      "main": [
+        [
+          {
+            "node": "IF — Tem Leads Qualificados?",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "IF — Tem Leads Qualificados?": {
       "main": [
-        [{ "node": "Loop — Split em Lotes de 10", "type": "main", "index": 0 }],
-        [{ "node": "Respond — Sem Leads", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Loop — Split em Lotes de 10",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond — Sem Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Loop — Split em Lotes de 10": {
       "main": [
-        [{ "node": "Code — Monta Records Airtable", "type": "main", "index": 0 }],
-        [{ "node": "Respond — Sucesso", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Code — Monta Records Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond — Sucesso",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Code — Monta Records Airtable": {
       "main": [
-        [{ "node": "HTTP — Airtable Bulk Create", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "HTTP — Airtable Bulk Create",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "HTTP — Airtable Bulk Create": {
       "main": [
-        [{ "node": "Loop — Split em Lotes de 10", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Loop — Split em Lotes de 10",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
