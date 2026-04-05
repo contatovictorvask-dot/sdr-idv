@@ -30,7 +30,7 @@
       "position": [480, 300],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// ── Valida e normaliza o payload recebido do Cockpit ──────────────────────\nconst body = $input.first().json.body || $input.first().json;\nconst { nicho, cidades, meta_semanal = 150 } = body;\n\nif (!nicho)    throw new Error('Payload inválido: campo \"nicho\" é obrigatório.');\nif (!cidades)  throw new Error('Payload inválido: campo \"cidades\" é obrigatório (string ou array).');\n\nconst cidadesArr = Array.isArray(cidades) ? cidades : [cidades];\n\n// Divide a meta semanal em lote diário (ex: 150/7 = ~22 por noite)\nconst lote_diario = Math.ceil(meta_semanal / 7);\n\n// Buffer de 2x para compensar leads descartados pelo filtro/score\nconst apify_limit = lote_diario * 2;\n\n// Grava a missão no staticData para uso nos próximos nós\n$workflow.staticData.missao = {\n  nicho,\n  cidades: cidadesArr,\n  meta_semanal,\n  lote_diario,\n  inicio: new Date().toISOString()\n};\n\n// Gera um item por cidade (cada um dispara um run separado no Apify)\nreturn cidadesArr.map(cidade => ({\n  json: {\n    nicho,\n    cidade,\n    lote_diario,\n    apify_limit,\n    search_query: `${nicho} ${cidade}`\n  }\n}));"
+        "jsCode": "// ── Valida e normaliza o payload recebido do Cockpit ──────────────────────\nconst body = $input.first().json.body || $input.first().json;\nconst { nicho, cidades, meta_semanal = 140 } = body;\n\nif (!nicho)    throw new Error('Payload inválido: campo \"nicho\" é obrigatório.');\nif (!cidades)  throw new Error('Payload inválido: campo \"cidades\" é obrigatório (string ou array).');\n\nconst cidadesArr = Array.isArray(cidades) ? cidades : [cidades];\n\n// REGRA GLOBAL: Máximo de 20 leads por rodada de execução\nlet lote_diario = Math.ceil(meta_semanal / 7);\nif (lote_diario > 20) lote_diario = 20; \n\n// Buffer reduzido para não sobrecarregar Apify, mantendo o limite fixo em teto de segurança\nconst apify_limit = lote_diario + 5;\n\n// Grava a missão no staticData para uso nos próximos nós\n$workflow.staticData.missao = {\n  nicho,\n  cidades: cidadesArr,\n  meta_semanal,\n  lote_diario,\n  inicio: new Date().toISOString()\n};\n\n// Gera um item por cidade (cada um dispara um run separado no Apify)\nreturn cidadesArr.map(cidade => ({\n  json: {\n    nicho,\n    cidade,\n    lote_diario,\n    apify_limit,\n    search_query: `${nicho} ${cidade}`\n  }\n}));"
       }
     },
     {
@@ -141,15 +141,15 @@
     },
     {
       "id": "11111111-0000-4000-a000-000000000009",
-      "name": "Loop — Split em Lotes de 10",
+      "name": "Loop — Lote Unitário (Pacing)",
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
       "position": [2160, 180],
       "parameters": {
-        "batchSize": 10,
+        "batchSize": 1,
         "options": {}
       },
-      "_comment": "Output 0 = lote atual (até 10 leads). Output 1 = todos os lotes processados → dispara Respond Webhook."
+      "_comment": "Output 0 = lote atual (1 lead por vez para respeitar limite e fluxo). Output 1 = todos os lotes processados → dispara Respond Webhook."
     },
     {
       "id": "11111111-0000-4000-a000-000000000010",
@@ -262,11 +262,11 @@
     },
     "IF — Tem Leads Qualificados?": {
       "main": [
-        [{ "node": "Loop — Split em Lotes de 10", "type": "main", "index": 0 }],
+        [{ "node": "Loop — Lote Unitário (Pacing)", "type": "main", "index": 0 }],
         [{ "node": "Respond — Sem Leads", "type": "main", "index": 0 }]
       ]
     },
-    "Loop — Split em Lotes de 10": {
+    "Loop — Lote Unitário (Pacing)": {
       "main": [
         [{ "node": "Code — Monta Records Airtable", "type": "main", "index": 0 }],
         [{ "node": "Respond — Sucesso", "type": "main", "index": 0 }]
@@ -279,7 +279,7 @@
     },
     "HTTP — Airtable Bulk Create": {
       "main": [
-        [{ "node": "Loop — Split em Lotes de 10", "type": "main", "index": 0 }]
+        [{ "node": "Loop — Lote Unitário (Pacing)", "type": "main", "index": 0 }]
       ]
     }
   },
