@@ -239,8 +239,6 @@
     }
   },
   "settings": {
-    "executionOrder": "v1",
-    "saveManualExecutions": true,
-    "errorWorkflow": ""
+    "saveManualExecutions": true
   }
 }

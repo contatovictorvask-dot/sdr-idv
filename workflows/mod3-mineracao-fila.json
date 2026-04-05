@@ -377,9 +377,6 @@
     }
   },
   "settings": {
-    "executionOrder": "v1",
-    "saveManualExecutions": true,
-    "callerPolicy": "workflowsFromSameOwner",
-    "errorWorkflow": ""
+    "saveManualExecutions": true
   }
 }
