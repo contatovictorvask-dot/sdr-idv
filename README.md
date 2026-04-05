@@ -7,9 +7,9 @@ Sistema de Prospecção Perpétuo B2B Semi-Automático — Identidade Visual (Ti
 | Módulo | Status | Descrição |
 |--------|--------|-----------|
 | 1 — Infra Cloud | ✅ | Docker Compose: n8n + Redis + Evolution API + Nginx |
-| 2 — Arquitetura de Dados | 🔜 | Google Sheets (Cold) + Airtable (Hot CRM) |
-| 3 — Mineração de Leads | 🔜 | Apify + Filtros + Fila diária |
-| 4 — Scoring & Qualificação | 🔜 | Lead Score JS, filtro B2B/anti-concorrente |
+| 2 — Arquitetura de Dados | ✅ | Google Sheets (Cold) + Airtable (Hot CRM) + Redis Cache |
+| 3 — Mineração de Leads | ✅ | Pré-filtro SERP (barato) → Profile Scraper → Score → Airtable |
+| 4 — Scoring & Qualificação | ✅ | Embutido no MOD3: Lead Score JS, filtro B2B/anti-concorrente |
 | 5 — Pipeline Temporal | 🔜 | Aquecimento D1→D4, Pitch, Limpeza, Upsell |
 | 6 — Cockpit Front-end | 🔜 | SPA HTML/JS/Tailwind, Dashboard local |
 
