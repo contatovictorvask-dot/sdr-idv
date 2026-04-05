@@ -1,0 +1,558 @@
+{
+  "name": "MOD5 — Pipeline Temporal (D1→D4 + Limpeza + Upsell)",
+  "_meta": {
+    "module": 5,
+    "description": "Executa o funil temporal diário: aquecimento D1→D3, pitch D4, limpeza de inativos, upsell de clientes Won. Roda às 08h todo dia via cron.",
+    "version": "2.0",
+    "airtable_base": "app9BlRhuDFuRfyHi",
+    "airtable_table_operacional": "tblr6r7m93b7CcwOS",
+    "airtable_table_clientes": "tblOYJaQejTpT5WyR",
+    "messages": {
+      "D1": "Aquecimento 1 — apresentação leve, sem vender",
+      "D2": "Aquecimento 2 — prova de valor / case",
+      "D3": "Aquecimento 3 — pergunta de qualificação",
+      "D4": "Pitch — proposta direta com CTA",
+      "Upsell": "Reativação 45 dias após fechamento"
+    }
+  },
+  "nodes": [
+    {
+      "id": "55555555-0000-4000-a000-000000000001",
+      "name": "Cron — 08h Diário",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "everyDay",
+              "hour": 8,
+              "minute": 0
+            }
+          ]
+        }
+      },
+      "_comment": "Dispara o pipeline todo dia às 08h. MOD4 roda 2h antes (06h), então Dia_1 já estará populado."
+    },
+    {
+      "id": "55555555-0000-4000-a000-000000000002",
+      "name": "HTTP — Airtable: Busca Leads Ativos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [480, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ $env.AIRTABLE_TABLE_OPERACIONAL }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_API_KEY }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "OR({Status}=\"Dia_1\",{Status}=\"Dia_2\",{Status}=\"Dia_3\",{Status}=\"Dia_4_Pitch\")"
+            },
+            {
+              "name": "maxRecords",
+              "value": "200"
+            },
+            {
+              "name": "fields[]",
+              "value": "Username"
+            },
+            {
+              "name": "fields[]",
+              "value": "Nome_Empresa"
+            },
+            {
+              "name": "fields[]",
+              "value": "Telefone_WA"
+            },
+            {
+              "name": "fields[]",
+              "value": "Status"
+            },
+            {
+              "name": "fields[]",
+              "value": "Pitch_Script"
+            },
+            {
+              "name": "fields[]",
+              "value": "Nicho"
+            },
+            {
+              "name": "fields[]",
+              "value": "Lead_Score"
+            },
+            {
+              "name": "fields[]",
+              "value": "Data_Ultima_Acao"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "_comment": "Busca todos os leads ativos no pipeline (D1 a D4). Máx 200 por chamada (suficiente para operação diária)."
+    },
+    {
+      "id": "55555555-0000-4000-a000-000000000003",
+      "name": "Code — Processa Pipeline + Gera Mensagens",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// ── Processa cada lead e determina: mensagem a enviar + próximo status ─────\nconst response = $input.first().json;\nconst records  = response.records || [];\n\nconst NEXT_STATUS = {\n  'Dia_1':     'Dia_2',\n  'Dia_2':     'Dia_3',\n  'Dia_3':     'Dia_4_Pitch',\n  'Dia_4_Pitch': 'Proposta_Enviada'\n};\n\n// Mensagens por etapa — texto personalizado inserido antes de enviar\nconst MENSAGENS = {\n  Dia_1: (nome, nicho) =>\n    `Oi ${nome}! Tudo bem? 👋\\n\\n` +\n    `Vi o perfil de vocês no Instagram — trabalham com ${nicho}, né? Adorei! ` +\n    `Tenho acompanhado marcas do segmento e sempre fico curioso sobre os bastidores. ` +\n    `Como tá sendo essa jornada?`,\n\n  Dia_2: (nome, nicho) =>\n    `${nome}, continuando nossa conversa... 😊\\n\\n` +\n    `Trabalhei recentemente com uma empresa de ${nicho} e o que mais me surpreendeu foi ` +\n    `como uma identidade visual consistente impactou diretamente nas vendas deles — ` +\n    `clientes começaram a chegar por indicação só por parecer mais profissional. ` +\n    `Vocês já passaram por isso?`,\n\n  Dia_3: (nome, nicho) =>\n    `Oi ${nome}! Uma pergunta rápida... 🤔\\n\\n` +\n    `No ${nicho}, você sente que seus clientes reconhecem a marca de vocês ` +\n    `ou ainda é pelo boca a boca mesmo? ` +\n    `Pergunto porque é exatamente esse gap que costumo resolver. Seria ótimo entender o cenário de vocês.`,\n\n  Dia_4_Pitch: (nome, nicho, pitchScript) =>\n    pitchScript ||\n    `${nome}, fui direto ao ponto: 🎯\\n\\n` +\n    `Acredito que posso transformar a percepção da marca de vocês em ${nicho} com uma ` +\n    `identidade visual que realmente converte. ` +\n    `Tenho uma proposta personalizada. Posso apresentar em 15 minutos essa semana?`\n};\n\nconst paraEnviar = [];\nconst paraDescartar = [];\nconst agora = Date.now();\nconst LIMITE_DIAS_INATIVO = 3; // dias sem avanço → Reprovado\n\nfor (const record of records) {\n  const f      = record.fields || {};\n  const status = f.Status;\n  const nome   = (f.Nome_Empresa || f.Username || 'Olá').split(' ')[0];\n  const nicho  = f.Nicho || 'seu segmento';\n  const fone   = f.Telefone_WA;\n\n  if (!fone) continue; // sem telefone, pula\n\n  // Checa inatividade: se a última ação foi há mais de LIMITE_DIAS dias, descarta\n  if (f.Data_Ultima_Acao) {\n    const ultima = new Date(f.Data_Ultima_Acao).getTime();\n    const diasParados = (agora - ultima) / 86400000;\n    if (diasParados > LIMITE_DIAS_INATIVO) {\n      paraDescartar.push({ record_id: record.id, username: f.Username, motivo: 'inativo_3d' });\n      continue;\n    }\n  }\n\n  const mensagem    = MENSAGENS[status](nome, nicho, f.Pitch_Script);\n  const proximoStatus = NEXT_STATUS[status];\n\n  paraEnviar.push({\n    json: {\n      record_id:      record.id,\n      status_atual:   status,\n      proximo_status: proximoStatus,\n      telefone:       fone,\n      mensagem,\n      username:       f.Username\n    }\n  });\n}\n\n// Grava descartados no staticData para o nó de limpeza\n$workflow.staticData.paraDescartar = paraDescartar;\n$workflow.staticData.totalEnviados = 0;\n\nconsole.log(`[MOD5] Para enviar: ${paraEnviar.length} | Para descartar (inativos): ${paraDescartar.length}`);\n\nif (paraEnviar.length === 0) {\n  return [{ json: { _sem_leads: true, descartados: paraDescartar.length } }];\n}\n\nreturn paraEnviar;"
+      }
+    },
+    {
+      "id": "55555555-0000-4000-a000-000000000004",
+      "name": "IF — Tem Mensagens Pra Enviar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [960, 300],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-sem-leads",
+              "leftValue": "={{ $json._sem_leads }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "55555555-0000-4000-a000-000000000005",
+      "name": "HTTP — Evolution: Envia Mensagem WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1200, 180],
+      "parameters": {
+        "method": "POST",
+        "url": "=http://{{ $env.EVOLUTION_HOST }}:8080/message/sendText/{{ $env.EVOLUTION_INSTANCE_NAME }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.EVOLUTION_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ $json.telefone }}\",\n  \"textMessage\": {\n    \"text\": {{ JSON.stringify($json.mensagem) }}\n  },\n  \"delay\": 1200\n}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "_comment": "Envia via Evolution API (WhatsApp Baileys). delay=1200ms simula digitação humana. Número no formato 5511999999999."
+    },
+    {
+      "id": "55555555-0000-4000-a000-000000000006",
+      "name": "Code — Monta PATCH Airtable (Avança Status)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1440, 180],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Atualiza status para o próximo estágio e registra Data_Ultima_Acao\n$workflow.staticData.totalEnviados = ($workflow.staticData.totalEnviados || 0) + 1;\n\nreturn {\n  json: {\n    record_id:    $input.item.json.record_id,\n    novo_status:  $input.item.json.proximo_status,\n    username:     $input.item.json.username\n  }\n};"
+      }
+    },
+    {
+      "id": "55555555-0000-4000-a000-000000000007",
+      "name": "HTTP — Airtable: PATCH Avança Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1680, 180],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ $env.AIRTABLE_TABLE_OPERACIONAL }}/{{ $json.record_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"fields\": {\n    \"Status\": \"{{ $json.novo_status }}\",\n    \"Data_Ultima_Acao\": \"{{ new Date().toISOString() }}\"\n  }\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "_comment": "PATCH individual por lead — avança status (ex: Dia_1 → Dia_2). Registra timestamp para controle de inatividade."
+    },
+    {
+      "id": "55555555-0000-4000-a000-000000000008",
+      "name": "Code — Prepara Limpeza Inativos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 480],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Recupera lista de leads inativos do staticData\nconst paraDescartar = $workflow.staticData.paraDescartar || [];\n\nif (paraDescartar.length === 0) {\n  return [{ json: { _sem_descartados: true } }];\n}\n\n// Formata em lotes de 10 para PATCH bulk do Airtable\nconst records = paraDescartar.map(lead => ({\n  id: lead.record_id,\n  fields: {\n    Status: 'Reprovado',\n    Observacoes: `Descartado automaticamente — inativo por +3 dias (${new Date().toLocaleDateString('pt-BR')})`,\n    Data_Ultima_Acao: new Date().toISOString()\n  }\n}));\n\nconsole.log(`[MOD5-Limpeza] Descartando ${records.length} leads inativos.`);\nreturn [{ json: { records, count: records.length } }];"
+      }
+    },
+    {
+      "id": "55555555-0000-4000-a000-000000000009",
+      "name": "IF — Tem Inativos Pra Limpar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1200, 480],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-sem-descarte",
+              "leftValue": "={{ $json._sem_descartados }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "55555555-0000-4000-a000-000000000010",
+      "name": "HTTP — Airtable PATCH Inativos → Reprovado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1440, 480],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ $env.AIRTABLE_TABLE_OPERACIONAL }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: $json.records }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "_comment": "Move leads inativos (sem resposta por +3 dias) para Reprovado. Libera pipeline de leads frios."
+    },
+    {
+      "id": "55555555-0000-4000-a000-000000000011",
+      "name": "HTTP — Airtable: Busca Won p/ Upsell",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [240, 660],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ $env.AIRTABLE_TABLE_CLIENTES }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_API_KEY }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "=AND(IS_BEFORE({Data_Upsell}, TODAY()), {Data_Upsell}!=\"\")"
+            },
+            {
+              "name": "maxRecords",
+              "value": "50"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "_comment": "Busca clientes Won onde Data_Upsell <= hoje. Data_Upsell = Data_Fechamento + 45 dias, calculada no fechamento."
+    },
+    {
+      "id": "55555555-0000-4000-a000-000000000012",
+      "name": "Code — Prepara Mensagens Upsell",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 660],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const response = $input.first().json;\nconst records  = response.records || [];\n\nif (records.length === 0) {\n  return [{ json: { _sem_upsell: true } }];\n}\n\nconst result = [];\n\nfor (const record of records) {\n  const f    = record.fields || {};\n  const nome = (f.Nome_Empresa || f.Username || 'Olá').split(' ')[0];\n  const fone = f.Telefone_WA;\n\n  if (!fone) continue;\n\n  const mensagem =\n    `Oi ${nome}! Tudo bem? 😊\\n\\n` +\n    `Já faz um tempinho desde que entregamos o projeto de vocês, e fiquei pensando... ` +\n    `Como a identidade visual nova está performando? Os clientes estão reagindo bem?\\n\\n` +\n    `Tenho algumas ideias para a próxima fase (materiais, social media kit, apresentações). ` +\n    `Vale uma conversa rápida essa semana? ☕`;\n\n  result.push({\n    json: {\n      record_id: record.id,\n      telefone:  fone,\n      mensagem,\n      nome\n    }\n  });\n}\n\nconsole.log(`[MOD5-Upsell] ${result.length} clientes para upsell hoje.`);\n\nif (result.length === 0) {\n  return [{ json: { _sem_upsell: true } }];\n}\n\nreturn result;"
+      }
+    },
+    {
+      "id": "55555555-0000-4000-a000-000000000013",
+      "name": "IF — Tem Upsell Hoje?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [720, 660],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-sem-upsell",
+              "leftValue": "={{ $json._sem_upsell }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "55555555-0000-4000-a000-000000000014",
+      "name": "HTTP — Evolution: Envia Upsell WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [960, 620],
+      "parameters": {
+        "method": "POST",
+        "url": "=http://{{ $env.EVOLUTION_HOST }}:8080/message/sendText/{{ $env.EVOLUTION_INSTANCE_NAME }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.EVOLUTION_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ $json.telefone }}\",\n  \"textMessage\": {\n    \"text\": {{ JSON.stringify($json.mensagem) }}\n  },\n  \"delay\": 1500\n}",
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "55555555-0000-4000-a000-000000000015",
+      "name": "HTTP — Airtable: PATCH Data_Upsell Enviado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1200, 620],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ $env.AIRTABLE_TABLE_CLIENTES }}/{{ $json.record_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"fields\": {\n    \"Data_Upsell\": null,\n    \"Observacoes\": \"Upsell enviado em {{ new Date().toLocaleDateString('pt-BR') }}\"\n  }\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "_comment": "Zera Data_Upsell após envio para evitar disparo duplo. Próximo upsell pode ser reagendado manualmente."
+    },
+    {
+      "id": "55555555-0000-4000-a000-000000000016",
+      "name": "HTTP — Evolution: Notifica Operador",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1920, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "=http://{{ $env.EVOLUTION_HOST }}:8080/message/sendText/{{ $env.EVOLUTION_INSTANCE_NAME }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.EVOLUTION_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ $env.NOTIFY_WHATSAPP_NUMBER }}\",\n  \"textMessage\": {\n    \"text\": \"🤖 *SDR Perpétuo — Relatório Diário*\\n\\n✅ Mensagens enviadas: {{ $workflow.staticData.totalEnviados || 0 }}\\n🗑️ Inativos descartados: {{ ($workflow.staticData.paraDescartar || []).length }}\\n📅 {{ new Date().toLocaleDateString('pt-BR') }} às {{ new Date().toLocaleTimeString('pt-BR') }}\"\n  }\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "_comment": "Envia resumo diário de operação para o número NOTIFY_WHATSAPP_NUMBER configurado no .env."
+    }
+  ],
+  "connections": {
+    "Cron — 08h Diário": {
+      "main": [
+        [{ "node": "HTTP — Airtable: Busca Leads Ativos", "type": "main", "index": 0 }]
+      ]
+    },
+    "HTTP — Airtable: Busca Leads Ativos": {
+      "main": [
+        [{ "node": "Code — Processa Pipeline + Gera Mensagens", "type": "main", "index": 0 }]
+      ]
+    },
+    "Code — Processa Pipeline + Gera Mensagens": {
+      "main": [
+        [{ "node": "IF — Tem Mensagens Pra Enviar?", "type": "main", "index": 0 }]
+      ]
+    },
+    "IF — Tem Mensagens Pra Enviar?": {
+      "main": [
+        [{ "node": "HTTP — Evolution: Envia Mensagem WA", "type": "main", "index": 0 }],
+        [{ "node": "Code — Prepara Limpeza Inativos", "type": "main", "index": 0 }]
+      ]
+    },
+    "HTTP — Evolution: Envia Mensagem WA": {
+      "main": [
+        [{ "node": "Code — Monta PATCH Airtable (Avança Status)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Code — Monta PATCH Airtable (Avança Status)": {
+      "main": [
+        [{ "node": "HTTP — Airtable: PATCH Avança Status", "type": "main", "index": 0 }]
+      ]
+    },
+    "HTTP — Airtable: PATCH Avança Status": {
+      "main": [
+        [{ "node": "HTTP — Evolution: Notifica Operador", "type": "main", "index": 0 }]
+      ]
+    },
+    "Code — Prepara Limpeza Inativos": {
+      "main": [
+        [{ "node": "IF — Tem Inativos Pra Limpar?", "type": "main", "index": 0 }]
+      ]
+    },
+    "IF — Tem Inativos Pra Limpar?": {
+      "main": [
+        [{ "node": "HTTP — Airtable PATCH Inativos → Reprovado", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Cron — 08h Diário": {
+      "main": [
+        [
+          { "node": "HTTP — Airtable: Busca Leads Ativos", "type": "main", "index": 0 },
+          { "node": "HTTP — Airtable: Busca Won p/ Upsell", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "HTTP — Airtable: Busca Won p/ Upsell": {
+      "main": [
+        [{ "node": "Code — Prepara Mensagens Upsell", "type": "main", "index": 0 }]
+      ]
+    },
+    "Code — Prepara Mensagens Upsell": {
+      "main": [
+        [{ "node": "IF — Tem Upsell Hoje?", "type": "main", "index": 0 }]
+      ]
+    },
+    "IF — Tem Upsell Hoje?": {
+      "main": [
+        [{ "node": "HTTP — Evolution: Envia Upsell WA", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "HTTP — Evolution: Envia Upsell WA": {
+      "main": [
+        [{ "node": "HTTP — Airtable: PATCH Data_Upsell Enviado", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "pinData": {}
+}
