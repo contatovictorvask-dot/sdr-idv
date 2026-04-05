@@ -52,6 +52,13 @@
         "Data_Upsell":     "fldjWSIWHsSdyVGEx",
         "Telefone_WA":     "fldE2D3fkcVOqtQhr",
         "Observacoes":     "fldqnjVyZWFSazaPz"
+      },
+      "status_entrega_choices": {
+        "Briefing":          "selk2phTTDzvwu6eX",
+        "Em_Producao":       "selPwfLIyvxP5jMUt",
+        "Revisao":           "selllI3UHiTrIivI4",
+        "Entregue":          "selZFy83KSj2UAmJq",
+        "Upsell_Agendado":   "selqLmh4TT3pVXJ9V"
       }
     }
   }
