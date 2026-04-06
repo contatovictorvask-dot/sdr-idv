@@ -131,6 +131,18 @@ services:
       # --- Acesso por IP (sem HTTPS) ---
       N8N_SECURE_COOKIE: "false"
 
+      # --- Acesso a variáveis de ambiente nos nós ---
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+
+      # --- Tokens e APIs externas ---
+      APIFY_TOKEN: ${APIFY_TOKEN}
+      AIRTABLE_API_KEY: ${AIRTABLE_API_KEY}
+      AIRTABLE_BASE_ID: ${AIRTABLE_BASE_ID}
+      AIRTABLE_TABLE_OPERACIONAL: ${AIRTABLE_TABLE_OPERACIONAL}
+      SHEETS_SPREADSHEET_ID: ${SHEETS_SPREADSHEET_ID}
+      SHEETS_TAB_BLACKLIST: ${SHEETS_TAB_BLACKLIST}
+      SHEETS_TAB_QUARENTENA: ${SHEETS_TAB_QUARENTENA}
+
     networks:
       - sdr_net
     healthcheck:
@@ -167,6 +179,11 @@ services:
       GENERIC_TIMEZONE: America/Sao_Paulo
       TZ: America/Sao_Paulo
       N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      APIFY_TOKEN: ${APIFY_TOKEN}
+      AIRTABLE_API_KEY: ${AIRTABLE_API_KEY}
+      AIRTABLE_BASE_ID: ${AIRTABLE_BASE_ID}
+      SHEETS_SPREADSHEET_ID: ${SHEETS_SPREADSHEET_ID}
     networks:
       - sdr_net
 
