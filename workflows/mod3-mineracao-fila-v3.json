@@ -136,7 +136,7 @@
       "position": [2400, 180],
       "parameters": {
         "method": "POST",
-        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID || 'appjB4Yn4EaDJHd38' }}/tblPT2jQByZNZgtqk",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID || 'app9BlRhuDFuRfyHi' }}/{{ $env.AIRTABLE_TABLE_OPERACIONAL || 'tblr6r7m93b7CcwOS' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
