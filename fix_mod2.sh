@@ -23,18 +23,19 @@ else
   exit 1
 fi
 
-# Exportar apenas linhas KEY=VALUE simples (ignora comentários e linhas complexas)
-set -a
+# Exportar variáveis do .env (suporta aspas simples/duplas e caracteres especiais)
 while IFS= read -r line; do
-  # Pula comentários e linhas vazias
   [[ "$line" =~ ^[[:space:]]*# ]] && continue
   [[ -z "${line// }" ]] && continue
-  # Pega apenas linhas no formato KEY=valor
-  if [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
-    export "$line" 2>/dev/null || true
+  if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+    KEY="${BASH_REMATCH[1]}"
+    VAL="${BASH_REMATCH[2]}"
+    # Remove aspas envolventes (simples ou duplas)
+    VAL="${VAL#\"}" ; VAL="${VAL%\"}"
+    VAL="${VAL#\'}" ; VAL="${VAL%\'}"
+    export "$KEY=$VAL"
   fi
 done < "$ENV_FILE"
-set +a
 
 N8N_BASE="http://localhost:5678/api/v1"
 
