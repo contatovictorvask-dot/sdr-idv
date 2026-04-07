@@ -23,19 +23,19 @@ else
   exit 1
 fi
 
-# Exportar variáveis do .env (suporta aspas simples/duplas e caracteres especiais)
-while IFS= read -r line; do
-  [[ "$line" =~ ^[[:space:]]*# ]] && continue
-  [[ -z "${line// }" ]] && continue
-  if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
-    KEY="${BASH_REMATCH[1]}"
-    VAL="${BASH_REMATCH[2]}"
-    # Remove aspas envolventes (simples ou duplas)
-    VAL="${VAL#\"}" ; VAL="${VAL%\"}"
-    VAL="${VAL#\'}" ; VAL="${VAL%\'}"
-    export "$KEY=$VAL"
-  fi
-done < "$ENV_FILE"
+# Extrair variáveis específicas via grep (evita problemas com .env complexo)
+_get_env() {
+  local key="$1"
+  local val
+  val=$(grep -m1 "^${key}=" "$ENV_FILE" | cut -d= -f2- | tr -d '"' | tr -d "'")
+  echo "$val"
+}
+
+N8N_API_KEY=$(_get_env N8N_API_KEY)
+REDIS_PASSWORD=$(_get_env REDIS_PASSWORD)
+SHEETS_SPREADSHEET_ID=$(_get_env SHEETS_SPREADSHEET_ID)
+
+echo "DEBUG: N8N_API_KEY=${N8N_API_KEY:0:8}..."
 
 N8N_BASE="http://localhost:5678/api/v1"
 
