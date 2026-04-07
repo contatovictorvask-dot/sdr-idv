@@ -13,14 +13,29 @@ echo " FIX MOD2 — Blacklist Cache"
 echo "======================================"
 
 # Carregar variáveis
+ENV_FILE=""
 if [ -f .env ]; then
-  source .env
+  ENV_FILE=".env"
 elif [ -f infra/.env ]; then
-  source infra/.env
+  ENV_FILE="infra/.env"
 else
   echo "ERRO: .env não encontrado em /opt/sdr-idv nem em infra/"
   exit 1
 fi
+
+# Exportar apenas linhas KEY=VALUE simples (ignora comentários e linhas complexas)
+set -a
+while IFS= read -r line; do
+  # Pula comentários e linhas vazias
+  [[ "$line" =~ ^[[:space:]]*# ]] && continue
+  [[ -z "${line// }" ]] && continue
+  # Pega apenas linhas no formato KEY=valor
+  if [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+    export "$line" 2>/dev/null || true
+  fi
+done < "$ENV_FILE"
+set +a
+
 N8N_BASE="http://localhost:5678/api/v1"
 
 # --------------------------------------------------------
