@@ -134,6 +134,9 @@ services:
       # --- Acesso a variáveis de ambiente nos nós ---
       N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
 
+      # --- Permite nó Execute Command (necessário para MOD2 JWT via Python/openssl) ---
+      N8N_ALLOW_EXEC: "true"
+
       # --- Tokens e APIs externas ---
       APIFY_TOKEN: ${APIFY_TOKEN}
       AIRTABLE_API_KEY: ${AIRTABLE_API_KEY}
@@ -181,6 +184,7 @@ services:
       TZ: America/Sao_Paulo
       N8N_DIAGNOSTICS_ENABLED: "false"
       N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      N8N_ALLOW_EXEC: "true"
       APIFY_TOKEN: ${APIFY_TOKEN}
       AIRTABLE_API_KEY: ${AIRTABLE_API_KEY}
       AIRTABLE_BASE_ID: ${AIRTABLE_BASE_ID}
