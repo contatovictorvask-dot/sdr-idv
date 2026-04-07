@@ -13,7 +13,14 @@ echo " FIX MOD2 — Blacklist Cache"
 echo "======================================"
 
 # Carregar variáveis
-source .env
+if [ -f .env ]; then
+  source .env
+elif [ -f infra/.env ]; then
+  source infra/.env
+else
+  echo "ERRO: .env não encontrado em /opt/sdr-idv nem em infra/"
+  exit 1
+fi
 N8N_BASE="http://localhost:5678/api/v1"
 
 # --------------------------------------------------------
