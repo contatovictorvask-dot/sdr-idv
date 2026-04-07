@@ -23,19 +23,41 @@ else
   exit 1
 fi
 
-# Extrair variáveis específicas via grep (evita problemas com .env complexo)
+# Extrair variáveis via grep com suporte a Windows line endings e aspas
 _get_env() {
   local key="$1"
-  local val
-  val=$(grep -m1 "^${key}=" "$ENV_FILE" | cut -d= -f2- | tr -d '"' | tr -d "'")
-  echo "$val"
+  grep -m1 "^${key}=" "$ENV_FILE" \
+    | cut -d= -f2- \
+    | tr -d '\r' \
+    | sed 's/^"//;s/"$//;s/^'"'"'//;s/'"'"'$//'
 }
 
+# Tentar arquivo; se falhar, tentar via docker container
 N8N_API_KEY=$(_get_env N8N_API_KEY)
-REDIS_PASSWORD=$(_get_env REDIS_PASSWORD)
-SHEETS_SPREADSHEET_ID=$(_get_env SHEETS_SPREADSHEET_ID)
+if [ -z "$N8N_API_KEY" ]; then
+  N8N_API_KEY=$(docker exec sdr_n8n printenv N8N_API_KEY 2>/dev/null | tr -d '\r' || true)
+fi
+if [ -z "$N8N_API_KEY" ]; then
+  # Última tentativa: pegar de variável de ambiente já definida no shell
+  N8N_API_KEY="${N8N_API_KEY:-}"
+fi
 
-echo "DEBUG: N8N_API_KEY=${N8N_API_KEY:0:8}..."
+REDIS_PASSWORD=$(_get_env REDIS_PASSWORD)
+if [ -z "$REDIS_PASSWORD" ]; then
+  REDIS_PASSWORD=$(docker exec sdr_redis printenv REDIS_PASSWORD 2>/dev/null | tr -d '\r' || true)
+fi
+
+if [ -z "$N8N_API_KEY" ]; then
+  echo ""
+  echo "ERRO: N8N_API_KEY não encontrado. Verifique $ENV_FILE"
+  echo "Conteúdo da linha N8N_API_KEY no .env:"
+  grep "N8N_API_KEY" "$ENV_FILE" | cat -A | head -3
+  echo ""
+  echo "Defina manualmente: export N8N_API_KEY=sua_chave && bash fix_mod2.sh"
+  exit 1
+fi
+
+echo "DEBUG: N8N_API_KEY=${N8N_API_KEY:0:8}... (${#N8N_API_KEY} chars)"
 
 N8N_BASE="http://localhost:5678/api/v1"
 
