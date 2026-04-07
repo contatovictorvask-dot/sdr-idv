@@ -1,6 +1,7 @@
 # Secrets
 infra/.env
 **/.env
+CREDENCIAIS.txt
 
 # Dados de runtime
 infra/data/
