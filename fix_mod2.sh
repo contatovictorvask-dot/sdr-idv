@@ -1,8 +1,8 @@
 #!/bin/bash
 # =============================================================================
 # FIX MOD2 — Blacklist Cache
-# Resolve: N8N_ALLOW_EXEC + reimporta + ativa MOD2
 # Rodar em: /opt/sdr-idv na VPS como root
+# Uso: N8N_API_KEY="..." bash fix_mod2.sh
 # =============================================================================
 set -e
 
@@ -12,7 +12,7 @@ echo "======================================"
 echo " FIX MOD2 — Blacklist Cache"
 echo "======================================"
 
-# Carregar variáveis
+# Localizar .env
 ENV_FILE=""
 if [ -f .env ]; then
   ENV_FILE=".env"
@@ -28,120 +28,127 @@ _get_env() {
     | sed 's/^"//;s/"$//;s/^'"'"'//;s/'"'"'$//'
 }
 
-# n8n usa Basic Auth (não API key)
-N8N_USER=$(_get_env N8N_BASIC_AUTH_USER)
-N8N_PASS=$(_get_env N8N_BASIC_AUTH_PASSWORD)
 REDIS_PASSWORD=$(_get_env REDIS_PASSWORD)
-
-# Fallback via docker se .env não tem
-[ -z "$N8N_USER" ] && N8N_USER=$(docker exec sdr_n8n printenv N8N_BASIC_AUTH_USER 2>/dev/null | tr -d '\r' || echo "admin")
-[ -z "$N8N_PASS" ] && N8N_PASS=$(docker exec sdr_n8n printenv N8N_BASIC_AUTH_PASSWORD 2>/dev/null | tr -d '\r' || echo "")
 [ -z "$REDIS_PASSWORD" ] && REDIS_PASSWORD=$(docker exec sdr_redis printenv REQUIREPASS 2>/dev/null | tr -d '\r' || echo "")
 
-echo "N8N auth: user=${N8N_USER}, pass=${N8N_PASS:0:4}... (${#N8N_PASS} chars)"
-
 N8N_BASE="http://localhost:5678/api/v1"
-N8N_AUTH="-u ${N8N_USER}:${N8N_PASS}"
+
+# Configurar autenticação — prioridade: variável de ambiente > .env > Basic Auth
+if [ -z "$N8N_API_KEY" ]; then
+  N8N_API_KEY=$(_get_env N8N_API_KEY)
+fi
+
+if [ -n "$N8N_API_KEY" ]; then
+  echo "Auth: API Key (${N8N_API_KEY:0:20}...)"
+  AUTH_ARGS=(-H "X-N8N-API-KEY: $N8N_API_KEY")
+  AUTH_FOR_PY="apikey:$N8N_API_KEY"
+else
+  N8N_USER=$(_get_env N8N_BASIC_AUTH_USER)
+  N8N_PASS=$(_get_env N8N_BASIC_AUTH_PASSWORD)
+  [ -z "$N8N_USER" ] && N8N_USER=$(docker exec sdr_n8n printenv N8N_BASIC_AUTH_USER 2>/dev/null | tr -d '\r' || echo "admin")
+  [ -z "$N8N_PASS" ] && N8N_PASS=$(docker exec sdr_n8n printenv N8N_BASIC_AUTH_PASSWORD 2>/dev/null | tr -d '\r' || echo "")
+  echo "Auth: Basic user=${N8N_USER}"
+  AUTH_ARGS=(-u "${N8N_USER}:${N8N_PASS}")
+  AUTH_FOR_PY="basic:${N8N_USER}:${N8N_PASS}"
+fi
+
+# Salvar API key no .env se ainda não tiver
+if [ -n "$N8N_API_KEY" ] && ! grep -q "^N8N_API_KEY=" "$ENV_FILE" 2>/dev/null; then
+  echo "N8N_API_KEY=$N8N_API_KEY" >> "$ENV_FILE"
+  echo "API key salva em $ENV_FILE"
+fi
 
 # --------------------------------------------------------
 # 1. Puxar código mais recente
 # --------------------------------------------------------
 echo ""
-echo "[1/6] Atualizando código do repositório..."
+echo "[1/6] Atualizando repositório..."
 git pull origin claude/etapa-3-W7NEA || true
 echo "OK"
 
 # --------------------------------------------------------
-# 2. Reiniciar containers (N8N_ALLOW_EXEC já está no docker-compose)
+# 2. Reiniciar n8n com N8N_ALLOW_EXEC=true
 # --------------------------------------------------------
 echo ""
-echo "[2/6] Reiniciando n8n com N8N_ALLOW_EXEC=true..."
+echo "[2/6] Reiniciando n8n (N8N_ALLOW_EXEC=true)..."
 cd infra
 docker compose down n8n n8n-worker
 docker compose up -d n8n
-echo "Aguardando n8n inicializar (45s)..."
+echo "Aguardando n8n (45s)..."
 sleep 45
 
 for i in {1..10}; do
-  STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5678/healthz)
-  if [ "$STATUS" = "200" ]; then
-    echo "n8n OK"
-    break
-  fi
-  echo "Aguardando n8n... ($i/10)"
-  sleep 10
+  HTTP=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5678/healthz)
+  if [ "$HTTP" = "200" ]; then echo "n8n OK"; break; fi
+  echo "  aguardando... ($i/10)"; sleep 10
 done
 
 docker compose up -d n8n-worker
-echo "Worker reiniciado"
+echo "Worker OK"
 cd ..
 
 # --------------------------------------------------------
 # 3. Testar autenticação
 # --------------------------------------------------------
 echo ""
-echo "[2.5] Testando autenticação n8n..."
-AUTH_TEST=$(curl -s $N8N_AUTH "$N8N_BASE/workflows?limit=1")
-if echo "$AUTH_TEST" | grep -q "Unauthorized\|unauthorized\|401"; then
-  echo "ERRO: Autenticação falhou!"
-  echo "Resposta: $AUTH_TEST"
-  echo ""
-  echo "Tente: export N8N_PASS='sua_senha' && N8N_AUTH=\"-u admin:\$N8N_PASS\" bash fix_mod2.sh"
+echo "[2.5] Testando autenticação..."
+AUTH_TEST=$(curl -s "${AUTH_ARGS[@]}" "$N8N_BASE/workflows?limit=1")
+if echo "$AUTH_TEST" | python3 -c "import json,sys; d=json.load(sys.stdin); exit(0 if 'data' in d else 1)" 2>/dev/null; then
+  echo "Autenticação OK"
+else
+  echo "ERRO de autenticação:"
+  echo "$AUTH_TEST"
   exit 1
 fi
-echo "Autenticação OK"
 
 # --------------------------------------------------------
-# 4. Deletar MOD2 antigo (se existir)
+# 4. Remover MOD2 antigo
 # --------------------------------------------------------
 echo ""
 echo "[3/6] Removendo MOD2 antigo..."
-OLD_ID="nDfthw7vChvdbF62"
 
-DEL_RESP=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
-  $N8N_AUTH "$N8N_BASE/workflows/$OLD_ID")
-
-if [ "$DEL_RESP" = "200" ] || [ "$DEL_RESP" = "204" ]; then
-  echo "Removido (ID: $OLD_ID)"
-else
-  echo "ID $OLD_ID não encontrado (HTTP $DEL_RESP) — ok"
-fi
-
-# Deletar qualquer outro MOD2 duplicado
-echo "Verificando duplicatas..."
-curl -s $N8N_AUTH "$N8N_BASE/workflows?limit=50" | python3 -c "
+# Listar e remover todos com MOD2/Blacklist no nome
+curl -s "${AUTH_ARGS[@]}" "$N8N_BASE/workflows?limit=100" | python3 -c "
 import json,sys,subprocess
 data=json.load(sys.stdin)
-user=sys.argv[1]; pw=sys.argv[2]
+auth_for_py='$AUTH_FOR_PY'
+parts=auth_for_py.split(':',1)
+if parts[0]=='apikey':
+    curl_auth=['-H',f'X-N8N-API-KEY: {parts[1]}']
+else:
+    _,user,pw=auth_for_py.split(':',2)
+    curl_auth=['-u',f'{user}:{pw}']
+removed=0
 for wf in data.get('data',[]):
-    if 'MOD2' in wf.get('name','') or 'Blacklist' in wf.get('name',''):
-        wid=wf['id']
-        subprocess.run(['curl','-s','-o','/dev/null','-X','DELETE',
-            '-u',f'{user}:{pw}',
-            f'http://localhost:5678/api/v1/workflows/{wid}'])
-        print(f'  Removido: {wf[\"name\"]} ({wid})')
-" "$N8N_USER" "$N8N_PASS" 2>/dev/null || true
+    n=wf.get('name','')
+    if 'MOD2' in n or 'Blacklist' in n or wf['id']=='nDfthw7vChvdbF62':
+        r=subprocess.run(['curl','-s','-o','/dev/null','-w','%{http_code}','-X','DELETE']+curl_auth+[f'http://localhost:5678/api/v1/workflows/{wf[\"id\"]}'],capture_output=True,text=True)
+        print(f'  Removido: {n} ({wf[\"id\"]}) — HTTP {r.stdout.strip()}')
+        removed+=1
+if not removed:
+    print('  Nenhum MOD2 encontrado para remover')
+" 2>/dev/null || echo "  (erro ao listar — continuando)"
 
 # --------------------------------------------------------
-# 5. Importar MOD2 fresco (v2 com executeCommand)
+# 5. Importar MOD2 v2
 # --------------------------------------------------------
 echo ""
 echo "[4/6] Importando MOD2 (executeCommand + Python/openssl)..."
 
 IMPORT_RESP=$(curl -s -X POST "$N8N_BASE/workflows" \
-  $N8N_AUTH \
+  "${AUTH_ARGS[@]}" \
   -H "Content-Type: application/json" \
   -d @workflows/mod2-blacklist-cache-v2.json)
 
 NEW_ID=$(echo "$IMPORT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null || echo "")
 
 if [ -z "$NEW_ID" ]; then
-  echo "ERRO ao importar MOD2:"
+  echo "ERRO ao importar:"
   echo "$IMPORT_RESP" | python3 -m json.tool 2>/dev/null || echo "$IMPORT_RESP"
   exit 1
 fi
 
-echo "Importado — novo ID: $NEW_ID"
+echo "Importado — ID: $NEW_ID"
 
 # --------------------------------------------------------
 # 6. Ativar MOD2
@@ -150,21 +157,21 @@ echo ""
 echo "[5/6] Ativando MOD2..."
 
 ACTIVATE_RESP=$(curl -s -X PATCH "$N8N_BASE/workflows/$NEW_ID" \
-  $N8N_AUTH \
+  "${AUTH_ARGS[@]}" \
   -H "Content-Type: application/json" \
   -d '{"active": true}')
 
-ACTIVE=$(echo "$ACTIVATE_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('active','?'))" 2>/dev/null || echo "?")
+ACTIVE=$(echo "$ACTIVATE_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('active'))" 2>/dev/null || echo "?")
 echo "active: $ACTIVE"
 
 # --------------------------------------------------------
-# 7. Disparar execução de teste
+# 7. Executar teste
 # --------------------------------------------------------
 echo ""
-echo "[6/6] Disparando execução de teste..."
+echo "[6/6] Executando teste manual..."
 
 EXEC_RESP=$(curl -s -X POST "$N8N_BASE/workflows/$NEW_ID/execute" \
-  $N8N_AUTH \
+  "${AUTH_ARGS[@]}" \
   -H "Content-Type: application/json" \
   -d '{}')
 
@@ -173,14 +180,13 @@ import json,sys
 d=json.load(sys.stdin)
 print(d.get('executionId', d.get('id','?')))
 " 2>/dev/null || echo "?")
-echo "Execução iniciada: ID=$EXEC_ID"
+echo "Execução: ID=$EXEC_ID"
+echo "Aguardando 55s..."
+sleep 55
 
-echo "Aguardando 50s para execução concluir..."
-sleep 50
-
-EXEC_STATUS=$(curl -s $N8N_AUTH "$N8N_BASE/executions/$EXEC_ID" 2>/dev/null)
+EXEC_STATUS=$(curl -s "${AUTH_ARGS[@]}" "$N8N_BASE/executions/$EXEC_ID" 2>/dev/null)
 STATUS=$(echo "$EXEC_STATUS" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('status','?'))" 2>/dev/null || echo "?")
-echo "Status da execução: $STATUS"
+echo "Status: $STATUS"
 
 if [ "$STATUS" = "success" ]; then
   echo ""
@@ -188,49 +194,43 @@ if [ "$STATUS" = "success" ]; then
   echo " SUCESSO! MOD2 funcionando!"
   echo "======================================"
   echo ""
-  echo "Verificando Redis..."
+  echo "Redis blacklist_cache:"
   docker exec sdr_redis redis-cli -a "$REDIS_PASSWORD" --no-auth-warning GET blacklist_cache | python3 -c "
 import sys,json
 raw=sys.stdin.read().strip()
 if raw and raw not in ('nil','(nil)'):
     try:
-        data=json.loads(raw)
-        print(f'  blacklist_cache: {len(data)} entradas em Redis — OK')
+        d=json.loads(raw)
+        print(f'  {len(d)} entradas — OK')
     except:
-        print('  blacklist_cache: presente no Redis (raw):', raw[:80])
+        print('  presente (raw):', raw[:60])
 else:
-    print('  blacklist_cache: nil (vazio)')
+    print('  nil (vazio — verificar logs)')
 "
 else
   echo ""
-  echo "Status = $STATUS — verificando erros:"
+  echo "Status = $STATUS"
   echo "$EXEC_STATUS" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
 runData=(d.get('data',{}) or {}).get('resultData',{}).get('runData',{}) or {}
-erros=0
 for node,runs in runData.items():
     for run in (runs or []):
         err=run.get('error',{})
         if err:
-            print(f'  ERRO [{node}]: {err.get(\"message\",str(err))[:200]}')
-            erros+=1
-if not erros:
-    print('  Nenhum erro encontrado nos nós')
-    print('  Status raw:', d.get('status'))
-" 2>/dev/null || echo "$EXEC_STATUS" | head -c 400
+            print(f'  ERRO [{node}]: {err.get(\"message\",str(err))[:300]}')
+" 2>/dev/null || echo "$EXEC_STATUS" | head -c 500
 fi
 
 echo ""
-echo "Status final dos workflows:"
-curl -s $N8N_AUTH "$N8N_BASE/workflows?limit=50" | python3 -c "
+echo "Workflows ativos:"
+curl -s "${AUTH_ARGS[@]}" "$N8N_BASE/workflows?limit=50" | python3 -c "
 import json,sys
 data=json.load(sys.stdin)
 for wf in data.get('data',[]):
     if any(x in wf.get('name','') for x in ['MOD','Blacklist','Minera']):
-        icon='OK' if wf.get('active') else '--'
-        print(f'  [{icon}] {wf[\"name\"]} (ID: {wf[\"id\"]})')
+        icon='[OK]' if wf.get('active') else '[--]'
+        print(f'  {icon} {wf[\"name\"]} ({wf[\"id\"]})')
 "
-
 echo ""
-echo "ID do novo MOD2: $NEW_ID"
+echo "MOD2 novo ID: $NEW_ID"
