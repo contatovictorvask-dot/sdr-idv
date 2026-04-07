@@ -15,75 +15,12 @@
     },
     {
       "id": "n02",
-      "name": "Code — Gera JWT Google",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "name": "Cmd — Busca Sheets via Python",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
       "position": [480, 300],
       "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "// Web Crypto API (sem require - permitido no task runner)\nconst saRaw = Buffer.from($env.GOOGLE_SERVICE_ACCOUNT_B64, 'base64').toString('utf8');\nconst sa = JSON.parse(saRaw);\nconst now = Math.floor(Date.now() / 1000);\nconst b64url = s => btoa(s).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=/g,'');\nconst hdr = b64url(JSON.stringify({alg:'RS256',typ:'JWT'}));\nconst pay = b64url(JSON.stringify({\n  iss: sa.client_email,\n  scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',\n  aud: 'https://oauth2.googleapis.com/token',\n  exp: now + 3600,\n  iat: now\n}));\nconst toSign = hdr + '.' + pay;\n// Converte PEM para DER binário\nconst pemStrip = sa.private_key.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|----- -----/g,'').replace(/[\\r\\n]/g,'').trim();\nconst der = Uint8Array.from(atob(pemStrip), c => c.charCodeAt(0));\n// Importa chave e assina via Web Crypto\nconst key = await crypto.subtle.importKey('pkcs8', der, {name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'}, false, ['sign']);\nconst sigBuf = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(toSign));\nconst sig = btoa(String.fromCharCode(...new Uint8Array(sigBuf))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=/g,'');\nreturn [{ json: { jwt: toSign + '.' + sig } }];"
-      }
-    },
-    {
-      "id": "n03",
-      "name": "HTTP — Google: Token",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
-      "position": [720, 300],
-      "parameters": {
-        "method": "POST",
-        "url": "https://oauth2.googleapis.com/token",
-        "sendBody": true,
-        "contentType": "form-urlencoded",
-        "bodyParameters": {
-          "parameters": [
-            {"name": "grant_type", "value": "urn:ietf:params:oauth:grant-type:jwt-bearer"},
-            {"name": "assertion", "value": "={{ $json.jwt }}"}
-          ]
-        },
-        "options": {"timeout": 15000}
-      }
-    },
-    {
-      "id": "n04",
-      "name": "HTTP — Sheets: Blacklist",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
-      "position": [960, 300],
-      "parameters": {
-        "method": "GET",
-        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.SHEETS_SPREADSHEET_ID }}/values/{{ $env.SHEETS_TAB_BLACKLIST }}?majorDimension=ROWS",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{ $('HTTP — Google: Token').first().json.access_token }}"
-            }
-          ]
-        },
-        "options": {"timeout": 15000}
-      }
-    },
-    {
-      "id": "n05",
-      "name": "HTTP — Sheets: Quarentena",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
-      "position": [1200, 300],
-      "parameters": {
-        "method": "GET",
-        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.SHEETS_SPREADSHEET_ID }}/values/{{ $env.SHEETS_TAB_QUARENTENA }}?majorDimension=ROWS",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{ $('HTTP — Google: Token').first().json.access_token }}"
-            }
-          ]
-        },
-        "options": {"timeout": 15000}
+        "command": "python3 -c \"\nimport base64,json,time,urllib.request,urllib.parse,subprocess,tempfile,os,datetime\nsa=json.loads(base64.b64decode(os.environ.get('GOOGLE_SERVICE_ACCOUNT_B64','')).decode())\nnow=int(time.time())\nh=base64.urlsafe_b64encode(json.dumps({'alg':'RS256','typ':'JWT'}).encode()).rstrip(b'=').decode()\np=base64.urlsafe_b64encode(json.dumps({'iss':sa['client_email'],'scope':'https://www.googleapis.com/auth/spreadsheets.readonly','aud':'https://oauth2.googleapis.com/token','exp':now+3600,'iat':now}).encode()).rstrip(b'=').decode()\nmsg=(h+'.'+p).encode()\nkf=tempfile.mktemp(suffix='.pem');mf=tempfile.mktemp()\nopen(kf,'wb').write(sa['private_key'].encode())\nopen(mf,'wb').write(msg)\nsig=base64.urlsafe_b64encode(subprocess.run(['openssl','dgst','-sha256','-sign',kf,mf],capture_output=True).stdout).rstrip(b'=').decode()\nos.unlink(kf);os.unlink(mf)\njwt=h+'.'+p+'.'+sig\ndata=urllib.parse.urlencode({'grant_type':'urn:ietf:params:oauth:grant-type:jwt-bearer','assertion':jwt}).encode()\ntoken=json.loads(urllib.request.urlopen(urllib.request.Request('https://oauth2.googleapis.com/token',data=data)).read())['access_token']\nsp=os.environ.get('SHEETS_SPREADSHEET_ID','')\ntabs={'bl':os.environ.get('SHEETS_TAB_BLACKLIST','Blacklist_Permanente'),'qu':os.environ.get('SHEETS_TAB_QUARENTENA','Quarentena_90_Dias')}\nresult={}\nfor k,t in tabs.items():\n    url=f'https://sheets.googleapis.com/v4/spreadsheets/{sp}/values/{urllib.parse.quote(t)}?majorDimension=ROWS'\n    req=urllib.request.Request(url,headers={'Authorization':f'Bearer {token}'})\n    r=json.loads(urllib.request.urlopen(req).read())\n    result[k]=[row[0].lower().strip() for row in r.get('values',[])[1:] if row and row[0].strip()]\nmerged=list(set(result.get('bl',[])+result.get('qu',[])))\nprint(json.dumps({'blacklist':merged,'count':len(merged),'cachedAt':datetime.datetime.utcnow().isoformat()}))\n\""
       }
     },
     {
@@ -91,10 +28,10 @@
       "name": "Code — Monta Blacklist",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1440, 300],
+      "position": [720, 300],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const extract = (node) => {\n  try {\n    const resp = $input.all().find(i => i.json.range);\n    const d = $(node).first().json;\n    const values = d.values || [];\n    return values.slice(1).map(r => (r[0] || '').toLowerCase().trim()).filter(Boolean);\n  } catch(e) { return []; }\n};\nconst bl = $('HTTP \\u2014 Sheets: Blacklist').first().json;\nconst qu = $('HTTP \\u2014 Sheets: Quarentena').first().json;\nconst toArr = (d) => (d.values || []).slice(1).map(r => (r[0]||'').toLowerCase().trim()).filter(Boolean);\nconst merged = [...new Set([...toArr(bl), ...toArr(qu)])];\nconsole.log('[MOD2] Blacklist atualizada:', merged.length, 'entradas');\nreturn [{ json: { blacklist: merged, blacklist_json: JSON.stringify(merged), count: merged.length, cachedAt: new Date().toISOString() } }];"
+        "jsCode": "const stdout = $input.first().json.stdout || '';\nlet data;\ntry { data = JSON.parse(stdout.trim()); } catch(e) { throw new Error('Falha ao parsear saida Python: ' + stdout); }\nconst merged = data.blacklist || [];\nconsole.log('[MOD2] Blacklist:', merged.length, 'entradas');\nreturn [{ json: { blacklist: merged, blacklist_json: JSON.stringify(merged), count: merged.length, cachedAt: data.cachedAt } }];"
       }
     },
     {
@@ -102,7 +39,7 @@
       "name": "Redis SET — blacklist_cache",
       "type": "n8n-nodes-base.redis",
       "typeVersion": 1,
-      "position": [1680, 300],
+      "position": [960, 300],
       "parameters": {
         "operation": "set",
         "key": "blacklist_cache",
@@ -122,7 +59,7 @@
       "name": "Redis SET — blacklist_cache_ts",
       "type": "n8n-nodes-base.redis",
       "typeVersion": 1,
-      "position": [1920, 300],
+      "position": [1200, 300],
       "parameters": {
         "operation": "set",
         "key": "blacklist_cache_ts",
@@ -140,18 +77,9 @@
   ],
   "connections": {
     "Cron — A cada 23h": {
-      "main": [[{"node": "Code — Gera JWT Google", "type": "main", "index": 0}]]
+      "main": [[{"node": "Cmd — Busca Sheets via Python", "type": "main", "index": 0}]]
     },
-    "Code — Gera JWT Google": {
-      "main": [[{"node": "HTTP — Google: Token", "type": "main", "index": 0}]]
-    },
-    "HTTP — Google: Token": {
-      "main": [[{"node": "HTTP — Sheets: Blacklist", "type": "main", "index": 0}]]
-    },
-    "HTTP — Sheets: Blacklist": {
-      "main": [[{"node": "HTTP — Sheets: Quarentena", "type": "main", "index": 0}]]
-    },
-    "HTTP — Sheets: Quarentena": {
+    "Cmd — Busca Sheets via Python": {
       "main": [[{"node": "Code — Monta Blacklist", "type": "main", "index": 0}]]
     },
     "Code — Monta Blacklist": {
