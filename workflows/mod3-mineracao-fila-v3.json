@@ -33,7 +33,7 @@
       "position": [720, 300],
       "parameters": {
         "method": "POST",
-        "url": "=https://api.apify.com/v2/acts/apify~instagram-scraper/runs?waitForFinish=300&token={{ $env.APIFY_TOKEN }}",
+        "url": "=https://api.apify.com/v2/acts/apify~instagram-scraper/run-sync-get-dataset-items?token={{ $env.APIFY_TOKEN }}&format=json&clean=true&timeout=300&memory=1024",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\n  \"search\": \"{{ $json.search_query }}\",\n  \"searchType\": \"user\",\n  \"searchLimit\": {{ $json.apify_limit }},\n  \"resultsLimit\": {{ $json.apify_limit }},\n  \"addParentData\": false\n}",
@@ -195,12 +195,6 @@
       "main": [[{"node": "HTTP \u2014 Apify: Instagram Search Run", "type": "main", "index": 0}]]
     },
     "HTTP \u2014 Apify: Instagram Search Run": {
-      "main": [[{"node": "Code \u2014 Valida Run Apify", "type": "main", "index": 0}]]
-    },
-    "Code \u2014 Valida Run Apify": {
-      "main": [[{"node": "HTTP \u2014 Apify: Busca Dataset", "type": "main", "index": 0}]]
-    },
-    "HTTP \u2014 Apify: Busca Dataset": {
       "main": [[{"node": "Code \u2014 Filtra + Score", "type": "main", "index": 0}]]
     },
     "Code \u2014 Filtra + Score": {
