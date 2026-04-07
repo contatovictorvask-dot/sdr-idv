@@ -1,0 +1,169 @@
+{
+  "name": "MOD2 — Blacklist Cache (Redis)",
+  "nodes": [
+    {
+      "id": "n01",
+      "name": "Cron — A cada 23h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "parameters": {
+        "rule": {
+          "interval": [{"field": "hours", "hoursInterval": 23}]
+        }
+      }
+    },
+    {
+      "id": "n02",
+      "name": "Code — Gera JWT Google",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const crypto = require('crypto');\nconst saRaw = Buffer.from($env.GOOGLE_SERVICE_ACCOUNT_B64, 'base64').toString('utf8');\nconst sa = JSON.parse(saRaw);\nconst now = Math.floor(Date.now() / 1000);\nconst header = Buffer.from(JSON.stringify({alg:'RS256',typ:'JWT'})).toString('base64url');\nconst claim  = Buffer.from(JSON.stringify({\n  iss: sa.client_email,\n  scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',\n  aud: 'https://oauth2.googleapis.com/token',\n  exp: now + 3600,\n  iat: now\n})).toString('base64url');\nconst signer = crypto.createSign('RSA-SHA256');\nsigner.update(header + '.' + claim);\nconst sig = signer.sign(sa.private_key, 'base64url');\nreturn [{ json: { jwt: header + '.' + claim + '.' + sig } }];"
+      }
+    },
+    {
+      "id": "n03",
+      "name": "HTTP — Google: Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [720, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://oauth2.googleapis.com/token",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {"name": "grant_type", "value": "urn:ietf:params:oauth:grant-type:jwt-bearer"},
+            {"name": "assertion", "value": "={{ $json.jwt }}"}
+          ]
+        },
+        "options": {"timeout": 15000}
+      }
+    },
+    {
+      "id": "n04",
+      "name": "HTTP — Sheets: Blacklist",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [960, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.SHEETS_SPREADSHEET_ID }}/values/{{ $env.SHEETS_TAB_BLACKLIST }}?majorDimension=ROWS",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('HTTP — Google: Token').first().json.access_token }}"
+            }
+          ]
+        },
+        "options": {"timeout": 15000}
+      }
+    },
+    {
+      "id": "n05",
+      "name": "HTTP — Sheets: Quarentena",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1200, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.SHEETS_SPREADSHEET_ID }}/values/{{ $env.SHEETS_TAB_QUARENTENA }}?majorDimension=ROWS",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('HTTP — Google: Token').first().json.access_token }}"
+            }
+          ]
+        },
+        "options": {"timeout": 15000}
+      }
+    },
+    {
+      "id": "n06",
+      "name": "Code — Monta Blacklist",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1440, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const extract = (node) => {\n  try {\n    const resp = $input.all().find(i => i.json.range);\n    const d = $(node).first().json;\n    const values = d.values || [];\n    return values.slice(1).map(r => (r[0] || '').toLowerCase().trim()).filter(Boolean);\n  } catch(e) { return []; }\n};\nconst bl = $('HTTP \\u2014 Sheets: Blacklist').first().json;\nconst qu = $('HTTP \\u2014 Sheets: Quarentena').first().json;\nconst toArr = (d) => (d.values || []).slice(1).map(r => (r[0]||'').toLowerCase().trim()).filter(Boolean);\nconst merged = [...new Set([...toArr(bl), ...toArr(qu)])];\nconsole.log('[MOD2] Blacklist atualizada:', merged.length, 'entradas');\nreturn [{ json: { blacklist: merged, blacklist_json: JSON.stringify(merged), count: merged.length, cachedAt: new Date().toISOString() } }];"
+      }
+    },
+    {
+      "id": "n07",
+      "name": "Redis SET — blacklist_cache",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [1680, 300],
+      "parameters": {
+        "operation": "set",
+        "key": "blacklist_cache",
+        "value": "={{ $json.blacklist_json }}",
+        "expire": true,
+        "ttl": 86400
+      },
+      "credentials": {
+        "redis": {
+          "id": "2LJ9YPHLVrD2nDVO",
+          "name": "Redis SDR"
+        }
+      }
+    },
+    {
+      "id": "n08",
+      "name": "Redis SET — blacklist_cache_ts",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [1920, 300],
+      "parameters": {
+        "operation": "set",
+        "key": "blacklist_cache_ts",
+        "value": "={{ Date.now() }}",
+        "expire": true,
+        "ttl": 86400
+      },
+      "credentials": {
+        "redis": {
+          "id": "2LJ9YPHLVrD2nDVO",
+          "name": "Redis SDR"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron — A cada 23h": {
+      "main": [[{"node": "Code — Gera JWT Google", "type": "main", "index": 0}]]
+    },
+    "Code — Gera JWT Google": {
+      "main": [[{"node": "HTTP — Google: Token", "type": "main", "index": 0}]]
+    },
+    "HTTP — Google: Token": {
+      "main": [[{"node": "HTTP — Sheets: Blacklist", "type": "main", "index": 0}]]
+    },
+    "HTTP — Sheets: Blacklist": {
+      "main": [[{"node": "HTTP — Sheets: Quarentena", "type": "main", "index": 0}]]
+    },
+    "HTTP — Sheets: Quarentena": {
+      "main": [[{"node": "Code — Monta Blacklist", "type": "main", "index": 0}]]
+    },
+    "Code — Monta Blacklist": {
+      "main": [[{"node": "Redis SET — blacklist_cache", "type": "main", "index": 0}]]
+    },
+    "Redis SET — blacklist_cache": {
+      "main": [[{"node": "Redis SET — blacklist_cache_ts", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null
+}
