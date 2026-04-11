@@ -79,8 +79,9 @@ payload = {
     'name': 'Google Sheets SDR',
     'type': 'googleApi',
     'data': {
-        'serviceAccountEmail': sa['client_email'],
-        'privateKey': sa['private_key']
+        'email': sa['client_email'],
+        'privateKey': sa['private_key'],
+        'delegatedEmail': ''
     }
 }
 print(json.dumps(payload))
