@@ -81,7 +81,9 @@ payload = {
     'data': {
         'email': sa['client_email'],
         'privateKey': sa['private_key'],
-        'delegatedEmail': ''
+        'delegatedEmail': '',
+        'scopes': 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file',
+        'httpWarning': ''
     }
 }
 print(json.dumps(payload))
