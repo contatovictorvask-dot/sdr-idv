@@ -29,18 +29,22 @@ echo "======================================"
 echo ""
 echo "[1/5] Extraindo Service Account..."
 
-SA_JSON=$(docker exec sdr_n8n python3 -c "
-import base64, json, os, sys
-raw = os.environ.get('GOOGLE_SERVICE_ACCOUNT_B64', '')
-if not raw:
-    print('{}', file=sys.stderr)
-    sys.exit(1)
-sa = json.loads(base64.b64decode(raw).decode())
+# Pegar o B64 do container e processar no host (python3 não existe no container n8n)
+SA_B64=$(docker exec sdr_n8n printenv GOOGLE_SERVICE_ACCOUNT_B64 2>/dev/null | tr -d '\r\n')
+
+if [ -z "$SA_B64" ]; then
+  echo "ERRO: GOOGLE_SERVICE_ACCOUNT_B64 não encontrado no container"
+  exit 1
+fi
+
+SA_JSON=$(python3 -c "
+import base64, json, sys
+sa = json.loads(base64.b64decode('$SA_B64').decode())
 print(json.dumps({'email': sa['client_email'], 'key': sa['private_key']}))
 " 2>/dev/null)
 
-if [ -z "$SA_JSON" ] || [ "$SA_JSON" = "{}" ]; then
-  echo "ERRO: GOOGLE_SERVICE_ACCOUNT_B64 não encontrado no container"
+if [ -z "$SA_JSON" ]; then
+  echo "ERRO: falha ao decodificar Service Account"
   exit 1
 fi
 
@@ -67,16 +71,16 @@ if [ -n "$EXISTING_CRED" ]; then
   CRED_ID="$EXISTING_CRED"
   echo "Credencial existente reutilizada: $CRED_ID"
 else
-  # Montar JSON da credencial com a private key
-  CRED_PAYLOAD=$(docker exec sdr_n8n python3 -c "
-import base64,json,os
-sa=json.loads(base64.b64decode(os.environ.get('GOOGLE_SERVICE_ACCOUNT_B64','')).decode())
-payload={
-    'name':'Google Sheets SDR',
-    'type':'googleApi',
-    'data':{
-        'serviceAccountEmail': sa['client_email'],
-        'privateKey': sa['private_key']
+  # Montar JSON da credencial com a private key (usando python3 do host)
+  CRED_PAYLOAD=$(python3 -c "
+import json, sys
+sa_json = json.loads('$(echo "$SA_JSON" | sed "s/'/\\\\'/g")')
+payload = {
+    'name': 'Google Sheets SDR',
+    'type': 'googleApi',
+    'data': {
+        'serviceAccountEmail': sa_json['email'],
+        'privateKey': sa_json['key']
     }
 }
 print(json.dumps(payload))
