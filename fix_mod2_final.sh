@@ -71,16 +71,16 @@ if [ -n "$EXISTING_CRED" ]; then
   CRED_ID="$EXISTING_CRED"
   echo "Credencial existente reutilizada: $CRED_ID"
 else
-  # Montar JSON da credencial com a private key (usando python3 do host)
-  CRED_PAYLOAD=$(python3 -c "
-import json, sys
-sa_json = json.loads('$(echo "$SA_JSON" | sed "s/'/\\\\'/g")')
+  # Montar JSON da credencial — passar B64 via env var para evitar problemas com \n
+  CRED_PAYLOAD=$(SA_B64="$SA_B64" python3 -c "
+import base64, json, os
+sa = json.loads(base64.b64decode(os.environ['SA_B64']).decode())
 payload = {
     'name': 'Google Sheets SDR',
     'type': 'googleApi',
     'data': {
-        'serviceAccountEmail': sa_json['email'],
-        'privateKey': sa_json['key']
+        'serviceAccountEmail': sa['client_email'],
+        'privateKey': sa['private_key']
     }
 }
 print(json.dumps(payload))
