@@ -1,0 +1,146 @@
+{
+  "name": "MOD2 — Blacklist Cache (Redis)",
+  "nodes": [
+    {
+      "id": "n01",
+      "name": "Cron — A cada 23h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "parameters": {
+        "rule": {
+          "interval": [{"field": "hours", "hoursInterval": 23}]
+        }
+      }
+    },
+    {
+      "id": "n02",
+      "name": "Sheets — Blacklist",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [480, 300],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "1f3HHDQwGfb5eTJc6qHj0vBup81gEeBCiOg2awDNss5I",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Blacklist_Permanente",
+          "mode": "name"
+        },
+        "dataStartRow": 2,
+        "options": {}
+      },
+      "credentials": {
+        "googleApi": {
+          "id": "__CRED_ID__",
+          "name": "Google Sheets SDR"
+        }
+      }
+    },
+    {
+      "id": "n03",
+      "name": "Sheets — Quarentena",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [720, 300],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "1f3HHDQwGfb5eTJc6qHj0vBup81gEeBCiOg2awDNss5I",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Quarentena_90_Dias",
+          "mode": "name"
+        },
+        "dataStartRow": 2,
+        "options": {}
+      },
+      "credentials": {
+        "googleApi": {
+          "id": "__CRED_ID__",
+          "name": "Google Sheets SDR"
+        }
+      }
+    },
+    {
+      "id": "n04",
+      "name": "Code — Monta Blacklist",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const getFirst = item => { const v = Object.values(item.json || {})[0]; return v ? v.toString().toLowerCase().trim() : null; };\nconst bl = $('Sheets — Blacklist').all().map(getFirst).filter(Boolean);\nconst qu = $('Sheets — Quarentena').all().map(getFirst).filter(Boolean);\nconst merged = [...new Set([...bl, ...qu])];\nconsole.log('[MOD2] Blacklist total:', merged.length);\nreturn [{ json: { blacklist: merged, blacklist_json: JSON.stringify(merged), count: merged.length, cachedAt: new Date().toISOString() } }];"
+      }
+    },
+    {
+      "id": "n05",
+      "name": "Redis SET — blacklist_cache",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [1200, 300],
+      "parameters": {
+        "operation": "set",
+        "key": "blacklist_cache",
+        "value": "={{ $json.blacklist_json }}",
+        "expire": true,
+        "ttl": 86400
+      },
+      "credentials": {
+        "redis": {
+          "id": "2LJ9YPHLVrD2nDVO",
+          "name": "Redis SDR"
+        }
+      }
+    },
+    {
+      "id": "n06",
+      "name": "Redis SET — blacklist_cache_ts",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [1440, 300],
+      "parameters": {
+        "operation": "set",
+        "key": "blacklist_cache_ts",
+        "value": "={{ Date.now() }}",
+        "expire": true,
+        "ttl": 86400
+      },
+      "credentials": {
+        "redis": {
+          "id": "2LJ9YPHLVrD2nDVO",
+          "name": "Redis SDR"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron — A cada 23h": {
+      "main": [[{"node": "Sheets — Blacklist", "type": "main", "index": 0}]]
+    },
+    "Sheets — Blacklist": {
+      "main": [[{"node": "Sheets — Quarentena", "type": "main", "index": 0}]]
+    },
+    "Sheets — Quarentena": {
+      "main": [[{"node": "Code — Monta Blacklist", "type": "main", "index": 0}]]
+    },
+    "Code — Monta Blacklist": {
+      "main": [[{"node": "Redis SET — blacklist_cache", "type": "main", "index": 0}]]
+    },
+    "Redis SET — blacklist_cache": {
+      "main": [[{"node": "Redis SET — blacklist_cache_ts", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null
+}
