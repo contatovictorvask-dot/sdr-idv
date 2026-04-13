@@ -20,6 +20,7 @@
       "typeVersion": 4,
       "position": [480, 300],
       "parameters": {
+        "authentication": "serviceAccount",
         "operation": "read",
         "documentId": {
           "__rl": true,
@@ -48,6 +49,7 @@
       "typeVersion": 4,
       "position": [720, 300],
       "parameters": {
+        "authentication": "serviceAccount",
         "operation": "read",
         "documentId": {
           "__rl": true,
